@@ -1,0 +1,268 @@
+{
+  "name": "manim-slides-preview",
+  "displayName": "Manim Slides Preview",
+  "description": "Render manim-slides scenes, auto-convert them to interactive offline HTML, and live-preview them inside VS Code or any browser. Zero dependencies, fully offline.",
+  "version": "1.7.0",
+  "publisher": "local-tools",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "manim",
+    "manim-slides",
+    "presentation",
+    "preview",
+    "slides"
+  ],
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "main": "./extension.min.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "manimSlidesPreview.renderAndPreview",
+        "title": "Manim Slides: Render & Preview",
+        "icon": "$(play)"
+      },
+      {
+        "command": "manimSlidesPreview.openInBrowser",
+        "title": "Manim Slides: Open Preview in Browser"
+      },
+      {
+        "command": "manimSlidesPreview.selectScene",
+        "title": "Manim Slides: Select Scene(s)"
+      },
+      {
+        "command": "manimSlidesPreview.presentGui",
+        "title": "Manim Slides: Present in Native Window (GUI)"
+      },
+      {
+        "command": "manimSlidesPreview.showOutput",
+        "title": "Manim Slides: Show Output Log"
+      },
+      {
+        "command": "manimSlidesPreview.stopServer",
+        "title": "Manim Slides: Stop Preview Server"
+      },
+      {
+        "command": "manimSlidesPreview.clearCache",
+        "title": "Manim Slides: Clear Cache (force full re-render)"
+      },
+      {
+        "command": "manimSlidesPreview.exportPptx",
+        "title": "Manim Slides: Export PowerPoint (.pptx) Now"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "manimSlidesPreview.renderAndPreview",
+          "when": "resourceLangId == python",
+          "group": "navigation@0"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "manimSlidesPreview.renderAndPreview",
+          "when": "resourceLangId == python"
+        },
+        {
+          "command": "manimSlidesPreview.selectScene",
+          "when": "resourceLangId == python"
+        },
+        {
+          "command": "manimSlidesPreview.presentGui",
+          "when": "resourceLangId == python"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "manimSlidesPreview.renderAndPreview",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "editorLangId == python"
+      }
+    ],
+    "configuration": {
+      "title": "Manim Slides Preview",
+      "properties": {
+        "manimSlidesPreview.command": {
+          "type": "string",
+          "default": "manim-slides",
+          "description": "Executable used for rendering/converting. Examples: 'manim-slides', 'py -m manim_slides', '/usr/bin/manim-slides', 'C:\\\\Python313\\\\Scripts\\\\manim-slides.exe'."
+        },
+        "manimSlidesPreview.ffmpegPath": {
+          "type": "string",
+          "default": "",
+          "description": "Full path to your installed ffmpeg binary (e.g. 'C:\\\\ffmpeg\\\\bin\\\\ffmpeg.exe' or '/usr/bin/ffmpeg'). Its folder is prepended to PATH and exported as FFMPEG_BINARY for all render/convert/present commands, so Manim and manim-slides use YOUR ffmpeg instead of any bundled/other copy. Leave empty to use whatever 'ffmpeg' is already on PATH."
+        },
+        "manimSlidesPreview.useDaemon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep a persistent background Python process that imports manim once and renders every save in-process \u2014 eliminates interpreter startup + import time (~1-3s per save, more on Windows). Falls back to normal subprocess automatically if it can't start."
+        },
+        "manimSlidesPreview.pythonCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Python interpreter for the render daemon (e.g. 'py', 'python3.13', 'C:\\\\Python313\\\\python.exe', or a venv's python). Empty = 'python' on Windows, 'python3' elsewhere. Must be the same environment where manim-slides is installed."
+        },
+        "manimSlidesPreview.turboPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fastest possible preview iterations: renders at 640x360@15fps and skips generating reversed videos (stepping backwards in the preview replays the forward clip instead). Cuts cold renders ~25-40% and warm saves ~25%. Preview-only \u2014 turn OFF (or render with -qh) for final output. Worker processes are always capped at cpu_count-1 so your machine stays responsive."
+        },
+        "manimSlidesPreview.x264Preset": {
+          "type": "string",
+          "enum": [
+            "",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium"
+          ],
+          "enumDescriptions": [
+            "Manim default (medium) \u2014 smallest files, slowest encode",
+            "~2x faster encoding, moderately larger files (recommended for previews)",
+            "Faster encoding, larger files",
+            "Slightly faster than default",
+            "Same as Manim default"
+          ],
+          "default": "veryfast",
+          "description": "x264 encoder preset injected at the PyAV level for ALL renders through the extension (every quality). Faster presets trade file size for encoder speed \u2014 visual quality stays the same (CRF-controlled). Turbo mode always uses 'ultrafast' regardless. Requires the render daemon."
+        },
+        "manimSlidesPreview.cache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Manim's partial-movie cache so unchanged animations are reused between renders (only edited animations re-render), and skip the HTML convert + browser reload entirely when nothing changed. Disable if you suspect stale output; or run 'Manim Slides: Clear Cache' once instead."
+        },
+        "manimSlidesPreview.quality": {
+          "type": "string",
+          "enum": [
+            "-ql",
+            "-qm",
+            "-qh",
+            "-qp",
+            "-qk"
+          ],
+          "enumDescriptions": [
+            "Low (480p15) \u2014 fastest, best while coding",
+            "Medium (720p30)",
+            "High (1080p60)",
+            "2K (1440p60)",
+            "4K (2160p60)"
+          ],
+          "default": "-ql",
+          "description": "Render quality flag passed to manim."
+        },
+        "manimSlidesPreview.renderOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically re-render + re-convert + refresh the preview every time you save (Ctrl+S) a file that has already been previewed once."
+        },
+        "manimSlidesPreview.offline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pass --offline to 'manim-slides convert' so the HTML presentation bundles Reveal.js locally and works with no internet (requires manim-slides >= 5.1.10)."
+        },
+        "manimSlidesPreview.oneFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Pass --one-file so the presentation is a single self-contained HTML file (bigger file, slower convert \u2014 useful for sharing)."
+        },
+        "manimSlidesPreview.htmlControls": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show clickable Reveal.js arrow controls in the HTML presentation (-ccontrols=true)."
+        },
+        "manimSlidesPreview.extraRenderArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra CLI args appended to 'manim-slides render' (forwarded to manim)."
+        },
+        "manimSlidesPreview.extraConvertArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra CLI args appended to 'manim-slides convert'."
+        },
+        "manimSlidesPreview.port": {
+          "type": "number",
+          "default": 7801,
+          "description": "Preferred port for the built-in live-reload preview server (auto-increments if busy)."
+        },
+        "manimSlidesPreview.openIn": {
+          "type": "string",
+          "enum": [
+            "browser",
+            "vscode",
+            "gui",
+            "browser+vscode",
+            "browser+gui",
+            "vscode+gui",
+            "all",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Default external browser \u2014 snappable window, shareable as a tab in Google Meet, auto-refreshes on save",
+            "Simple Browser tab inside VS Code, beside your code, auto-refreshes on save",
+            "Native Python GUI window (PySide6, 'manim-slides present') \u2014 full presenter hotkeys, OS window snapping; relaunches with fresh slides on save",
+            "Browser tab + VS Code tab",
+            "Browser tab + native GUI window",
+            "VS Code tab + native GUI window",
+            "All three targets at once",
+            "Don't auto-open anything; use the status bar / commands"
+          ],
+          "default": "browser",
+          "description": "Preview target(s) opened after the first successful render. HTML targets (browser/vscode) silently refresh on every save; the GUI window is relaunched with the fresh slides on save (needs 'pip install manim-slides[pyside6]')."
+        },
+        "manimSlidesPreview.guiArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments for the native GUI presenter ('manim-slides present'), e.g. [\"--fullscreen\"], [\"--hide-mouse\"], [\"-S\", \"2\"] for a specific screen, [\"--aspect-ratio\", \"keep\"]."
+        },
+        "manimSlidesPreview.pptxExport": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-export a PowerPoint (.pptx) file after every changed preview (browser, VS Code tab or GUI). Runs in the background through the warm daemon \u2014 the preview is never delayed \u2014 and is skipped when the slides didn't change."
+        },
+        "manimSlidesPreview.pptxPath": {
+          "type": "string",
+          "default": "",
+          "description": "Where to write the .pptx. Empty = '<scene file's folder>/<filename>.pptx'. A folder path puts '<filename>.pptx' inside it; a path ending in .pptx is used as-is. Relative paths resolve against the scene file's folder."
+        },
+        "manimSlidesPreview.pptxArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments for 'manim-slides convert --to pptx', e.g. [\"-cwidth=1920\", \"-cheight=1080\"] or [\"-cauto_play_media=false\"]."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild extension.js --minify --platform=node --target=node16 --outfile=extension.min.js --legal-comments=none",
+    "package": "npm run build && vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.2"
+  }
+}
