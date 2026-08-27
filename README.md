@@ -167,7 +167,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 | `manimSlidesPreview.oneFile` | `false` | Single self-contained HTML (great for sharing, slower to build) |
 | `manimSlidesPreview.openIn` | `browser` | Any combination of the three preview targets: `browser` \| `vscode` \| `gui` (native PySide6 window) \| `browser+vscode` \| `browser+gui` \| `vscode+gui` \| `all` \| `none` |
 | `manimSlidesPreview.guiArgs` | `[]` | Extra flags for the native GUI presenter (`manim-slides present`), e.g. `["--fullscreen"]`, `["--hide-mouse"]`, `["-S","2"]` for a second monitor |
-| `manimSlidesPreview.pptxExport` | `false` | Auto-export a PowerPoint (`.pptx`) after every changed preview — runs in the background through the warm daemon, never delays the preview, skipped when slides are unchanged |
+| `manimSlidesPreview.pptxExport` | `true` | **On by default:** the first ▶ render creates a `.pptx` next to your scene file, and every changed Ctrl+S silently keeps it up to date — background export through the warm daemon, never delays the preview, skipped when slides are unchanged |
 | `manimSlidesPreview.pptxPath` | `""` | Output location: empty = next to the scene file; a folder puts `<file>.pptx` inside it; a `.pptx` path is used as-is (relative paths resolve against the scene file's folder) |
 | `manimSlidesPreview.pptxArgs` | `[]` | Extra flags for `manim-slides convert --to pptx`, e.g. `["-cwidth=1920","-cheight=1080"]` |
 | `manimSlidesPreview.port` | `7801` | Auto-increments if busy |

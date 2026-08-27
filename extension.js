@@ -482,10 +482,18 @@ function exportPptx(filePath, fileDir, scenes, conf, st, force) {
         rc = await run([...splitCmd(conf.get("command") || "manim-slides"), ...args], fileDir, "pptx");
       }
       if (rc === 0 && fs.existsSync(tmp)) {
+        const isFirst = !fs.existsSync(dest);
         fs.renameSync(tmp, dest); // atomic: never a half-written .pptx
         st.pptxKey = key;
         const kb = Math.round(fs.statSync(dest).size / 1024);
         log(`[pptx] ${dest} ready (${kb} KB, ${((Date.now() - t0) / 1000).toFixed(1)}s, background)`);
+        if (isFirst && !st.pptxToldOnce) {
+          // One-time discoverability toast; every later save updates silently.
+          st.pptxToldOnce = true;
+          if (typeof vscode.window.setStatusBarMessage === "function")
+            vscode.window.setStatusBarMessage(
+              `$(file-media) PowerPoint created: ${path.basename(dest)} — kept in sync on every save`, 8000);
+        }
       } else {
         try { fs.rmSync(tmp, { force: true }); } catch (_) {}
         log("[pptx] export failed — see log above (preview was not affected)");

@@ -2,7 +2,7 @@
   "name": "manim-slides-preview",
   "displayName": "Manim Slides Preview",
   "description": "Render manim-slides scenes, auto-convert them to interactive offline HTML, and live-preview them inside VS Code or any browser. Zero dependencies, fully offline.",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "publisher": "local-tools",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -107,7 +107,7 @@
         "manimSlidesPreview.useDaemon": {
           "type": "boolean",
           "default": true,
-          "description": "Keep a persistent background Python process that imports manim once and renders every save in-process \u2014 eliminates interpreter startup + import time (~1-3s per save, more on Windows). Falls back to normal subprocess automatically if it can't start."
+          "description": "Keep a persistent background Python process that imports manim once and renders every save in-process — eliminates interpreter startup + import time (~1-3s per save, more on Windows). Falls back to normal subprocess automatically if it can't start."
         },
         "manimSlidesPreview.pythonCommand": {
           "type": "string",
@@ -117,7 +117,7 @@
         "manimSlidesPreview.turboPreview": {
           "type": "boolean",
           "default": false,
-          "description": "Fastest possible preview iterations: renders at 640x360@15fps and skips generating reversed videos (stepping backwards in the preview replays the forward clip instead). Cuts cold renders ~25-40% and warm saves ~25%. Preview-only \u2014 turn OFF (or render with -qh) for final output. Worker processes are always capped at cpu_count-1 so your machine stays responsive."
+          "description": "Fastest possible preview iterations: renders at 640x360@15fps and skips generating reversed videos (stepping backwards in the preview replays the forward clip instead). Cuts cold renders ~25-40% and warm saves ~25%. Preview-only — turn OFF (or render with -qh) for final output. Worker processes are always capped at cpu_count-1 so your machine stays responsive."
         },
         "manimSlidesPreview.x264Preset": {
           "type": "string",
@@ -129,14 +129,14 @@
             "medium"
           ],
           "enumDescriptions": [
-            "Manim default (medium) \u2014 smallest files, slowest encode",
+            "Manim default (medium) — smallest files, slowest encode",
             "~2x faster encoding, moderately larger files (recommended for previews)",
             "Faster encoding, larger files",
             "Slightly faster than default",
             "Same as Manim default"
           ],
           "default": "veryfast",
-          "description": "x264 encoder preset injected at the PyAV level for ALL renders through the extension (every quality). Faster presets trade file size for encoder speed \u2014 visual quality stays the same (CRF-controlled). Turbo mode always uses 'ultrafast' regardless. Requires the render daemon."
+          "description": "x264 encoder preset injected at the PyAV level for ALL renders through the extension (every quality). Faster presets trade file size for encoder speed — visual quality stays the same (CRF-controlled). Turbo mode always uses 'ultrafast' regardless. Requires the render daemon."
         },
         "manimSlidesPreview.cache": {
           "type": "boolean",
@@ -153,7 +153,7 @@
             "-qk"
           ],
           "enumDescriptions": [
-            "Low (480p15) \u2014 fastest, best while coding",
+            "Low (480p15) — fastest, best while coding",
             "Medium (720p30)",
             "High (1080p60)",
             "2K (1440p60)",
@@ -175,7 +175,7 @@
         "manimSlidesPreview.oneFile": {
           "type": "boolean",
           "default": false,
-          "description": "Pass --one-file so the presentation is a single self-contained HTML file (bigger file, slower convert \u2014 useful for sharing)."
+          "description": "Pass --one-file so the presentation is a single self-contained HTML file (bigger file, slower convert — useful for sharing)."
         },
         "manimSlidesPreview.htmlControls": {
           "type": "boolean",
@@ -216,9 +216,9 @@
             "none"
           ],
           "enumDescriptions": [
-            "Default external browser \u2014 snappable window, shareable as a tab in Google Meet, auto-refreshes on save",
+            "Default external browser — snappable window, shareable as a tab in Google Meet, auto-refreshes on save",
             "Simple Browser tab inside VS Code, beside your code, auto-refreshes on save",
-            "Native Python GUI window (PySide6, 'manim-slides present') \u2014 full presenter hotkeys, OS window snapping; relaunches with fresh slides on save",
+            "Native Python GUI window (PySide6, 'manim-slides present') — full presenter hotkeys, OS window snapping; relaunches with fresh slides on save",
             "Browser tab + VS Code tab",
             "Browser tab + native GUI window",
             "VS Code tab + native GUI window",
@@ -238,8 +238,8 @@
         },
         "manimSlidesPreview.pptxExport": {
           "type": "boolean",
-          "default": false,
-          "description": "Auto-export a PowerPoint (.pptx) file after every changed preview (browser, VS Code tab or GUI). Runs in the background through the warm daemon \u2014 the preview is never delayed \u2014 and is skipped when the slides didn't change."
+          "default": true,
+          "description": "Auto-export a PowerPoint (.pptx) next to your scene file: created on the first ▶ render, silently kept up to date on every changed Ctrl+S. Runs in the background through the warm daemon — the preview is never delayed — and skipped when the slides didn't change. Set to false to disable."
         },
         "manimSlidesPreview.pptxPath": {
           "type": "string",
