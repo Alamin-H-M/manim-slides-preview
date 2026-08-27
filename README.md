@@ -1,5 +1,7 @@
 # Manim Slides Preview
 
+**Live preview for manim-slides in VS Code** — auto render on save, hot-reload in the browser / VS Code tab / native GUI, and automatic PowerPoint (.pptx) export. The “Manim Sideview experience” for presentations.
+
 > 🤖 **Open source, AI-generated.** This extension was built by an AI assistant at a user's
 > request and published for everyone. Found a bug? Open an issue or PR — contributions welcome.
 >

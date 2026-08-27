@@ -17,8 +17,18 @@
     "manim",
     "manim-slides",
     "presentation",
-    "preview",
-    "slides"
+    "live preview",
+    "slides",
+    "python",
+    "animation",
+    "latex",
+    "beamer alternative",
+    "pptx",
+    "powerpoint",
+    "offline",
+    "auto reload",
+    "hot reload",
+    "manim sideview"
   ],
   "activationEvents": [
     "onLanguage:python"
