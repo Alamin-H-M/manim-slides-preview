@@ -1,5 +1,12 @@
 # Manim Slides Preview
 
+> 🤖 **Open source, AI-generated.** This extension was built by an AI assistant at a user's
+> request and published for everyone. Found a bug? Open an issue or PR — contributions welcome.
+>
+> 📚 **New to LaTeX / Manim / manim-slides?** Learn the whole stack with the free offline
+> course **[Manim Slides Academy](https://github.com/Alamin-H-M/manim-slides-academy)** — built around this extension's workflow.
+
+
 A **lightweight, zero-dependency, fully offline** VS Code extension that gives
 `manim-slides` the same one-click workflow you already use with Manim Sideview:
 
