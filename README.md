@@ -1,6 +1,6 @@
 # Manim Slides Preview
 
-**Live preview for manim-slides in VS Code** — auto render on save, hot-reload in the browser / VS Code tab / native GUI, and automatic PowerPoint (.pptx) export. The “Manim Sideview experience” for presentations.
+**Live preview for manim-slides in VS Code** — auto render on save, hot-reload in the browser / VS Code tab / native GUI, and automatic PowerPoint (.pptx) export. Press ▶ once — after that every save updates your presentation.
 
 > 🤖 **Open source, AI-generated.** This extension was built by an AI assistant at a user's
 > request and published for everyone. Found a bug? Open an issue or PR — contributions welcome.
@@ -10,7 +10,8 @@
 
 
 A **lightweight, zero-dependency, fully offline** VS Code extension that gives
-`manim-slides` the same one-click workflow you already use with Manim Sideview:
+`manim-slides` a true one-click workflow (if you know the Manim Sideview
+extension: this is that experience, but for interactive presentations):
 
 > Open folder → create `.py` → click ▶ → **interactive** slide preview appears → `Ctrl+S` → preview auto-refreshes.
 
@@ -62,9 +63,14 @@ Four layers make each Ctrl+S iteration as fast as possible:
 | Tool | Check with | Install |
 |---|---|---|
 | Python 3.9+ | `python --version` | python.org |
-| Manim CE | `manim --version` | `pip install manim` |
+| Manim CE ≥ 0.19 | `manim --version` | `pip install manim` |
 | manim-slides **≥ 5.1.10** | `manim-slides --version` | `pip install -U "manim-slides[pyside6]"` |
-| FFmpeg + LaTeX (TeX Live) | — | already in your stack |
+| LaTeX (MiKTeX / TeX Live) | `latex --version` | **only if** your scenes use `MathTex` / `Tex` |
+
+> **No FFmpeg needed.** Manim CE ≥ 0.19 encodes video through its bundled PyAV
+> library — you do **not** have to install an ffmpeg binary for this extension
+> or for rendering. (The `ffmpegPath` setting exists purely for older Manim
+> versions and plugins that still call ffmpeg directly.)
 
 > `--offline` HTML export needs manim-slides **5.1.10 or newer**. If you're on an
 > older version, either update or turn off `manimSlidesPreview.offline` in settings.
@@ -73,12 +79,12 @@ Four layers make each Ctrl+S iteration as fast as possible:
 
 ## Installing the extension (offline, for all users)
 
-You get a single `manim-slides-preview-1.7.4.vsix` file. No marketplace, no internet needed.
+You get a single `manim-slides-preview-1.7.5.vsix` file. No marketplace, no internet needed.
 
 ### Option A — per user (simplest)
 1. Copy the `.vsix` to the machine.
 2. In VS Code: **Extensions panel → `···` menu → Install from VSIX…** → pick the file.
-   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.4.vsix`
+   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.5.vsix`
 
 ### Option B — every user on a shared machine (Windows)
 Run in an **admin** PowerShell — installs for each existing user profile:
@@ -86,16 +92,16 @@ Run in an **admin** PowerShell — installs for each existing user profile:
 ```powershell
 Get-ChildItem C:\Users -Directory | ForEach-Object {
   $code = "$($_.FullName)\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd"
-  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.4.vsix" }
+  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.5.vsix" }
 }
 ```
 
 If VS Code is installed system-wide (`C:\Program Files\Microsoft VS Code`), each user
-just runs once: `code --install-extension manim-slides-preview-1.7.4.vsix`.
+just runs once: `code --install-extension manim-slides-preview-1.7.5.vsix`.
 
 ### Option C — every user on Linux/macOS
 ```bash
-sudo -u <username> code --install-extension manim-slides-preview-1.7.4.vsix
+sudo -u <username> code --install-extension manim-slides-preview-1.7.5.vsix
 ```
 
 ---
@@ -197,7 +203,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 ```bash
 npm install -g @vscode/vsce
 cd manim-slides-preview
-vsce package        # → manim-slides-preview-1.7.4.vsix
+vsce package        # → manim-slides-preview-1.7.5.vsix
 ```
 
 MIT licensed. No telemetry, no network calls, no runtime dependencies.
