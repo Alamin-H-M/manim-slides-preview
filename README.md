@@ -73,12 +73,12 @@ Four layers make each Ctrl+S iteration as fast as possible:
 
 ## Installing the extension (offline, for all users)
 
-You get a single `manim-slides-preview-1.7.2.vsix` file. No marketplace, no internet needed.
+You get a single `manim-slides-preview-1.7.3.vsix` file. No marketplace, no internet needed.
 
 ### Option A — per user (simplest)
 1. Copy the `.vsix` to the machine.
 2. In VS Code: **Extensions panel → `···` menu → Install from VSIX…** → pick the file.
-   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.2.vsix`
+   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.3.vsix`
 
 ### Option B — every user on a shared machine (Windows)
 Run in an **admin** PowerShell — installs for each existing user profile:
@@ -86,16 +86,16 @@ Run in an **admin** PowerShell — installs for each existing user profile:
 ```powershell
 Get-ChildItem C:\Users -Directory | ForEach-Object {
   $code = "$($_.FullName)\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd"
-  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.2.vsix" }
+  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.3.vsix" }
 }
 ```
 
 If VS Code is installed system-wide (`C:\Program Files\Microsoft VS Code`), each user
-just runs once: `code --install-extension manim-slides-preview-1.7.2.vsix`.
+just runs once: `code --install-extension manim-slides-preview-1.7.3.vsix`.
 
 ### Option C — every user on Linux/macOS
 ```bash
-sudo -u <username> code --install-extension manim-slides-preview-1.7.2.vsix
+sudo -u <username> code --install-extension manim-slides-preview-1.7.3.vsix
 ```
 
 ---
@@ -197,7 +197,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 ```bash
 npm install -g @vscode/vsce
 cd manim-slides-preview
-vsce package        # → manim-slides-preview-1.7.2.vsix
+vsce package        # → manim-slides-preview-1.7.3.vsix
 ```
 
 MIT licensed. No telemetry, no network calls, no runtime dependencies.

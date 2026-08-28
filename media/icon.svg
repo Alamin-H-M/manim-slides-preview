@@ -2,24 +2,38 @@
   <!-- rounded app tile -->
   <rect x="0" y="0" width="128" height="128" rx="28" fill="#0d1117"/>
 
-  <!-- mac browser window (empty tab) -->
+  <!-- mac browser window (empty dark tab) -->
   <g>
-    <!-- window body -->
-    <rect x="14" y="20" width="100" height="88" rx="11" fill="#161b22" stroke="#454d57" stroke-width="3.5"/>
-    <!-- title bar -->
-    <path d="M14 31 a11 11 0 0 1 11-11 h78 a11 11 0 0 1 11 11 v11 H14 Z" fill="#242b33"/>
-    <line x1="14" y1="42" x2="114" y2="42" stroke="#454d57" stroke-width="3.5"/>
-    <!-- traffic lights -->
-    <circle cx="27.5" cy="31" r="4.5" fill="#ff5f57"/>
-    <circle cx="41.5" cy="31" r="4.5" fill="#febc2e"/>
-    <circle cx="55.5" cy="31" r="4.5" fill="#28c840"/>
+    <rect x="12" y="18" width="104" height="92" rx="11" fill="#161b22" stroke="#454d57" stroke-width="3.5"/>
+    <path d="M12 29 a11 11 0 0 1 11-11 h82 a11 11 0 0 1 11 11 v11 H12 Z" fill="#242b33"/>
+    <line x1="12" y1="40" x2="116" y2="40" stroke="#454d57" stroke-width="3.5"/>
+    <circle cx="26" cy="29" r="4.5" fill="#ff5f57"/>
+    <circle cx="40" cy="29" r="4.5" fill="#febc2e"/>
+    <circle cx="54" cy="29" r="4.5" fill="#28c840"/>
   </g>
 
-  <!-- slide-preview arrows, lower left (manim-slides prev/next controls) -->
-  <g>
-    <!-- prev (hollow) -->
-    <path d="M46 76 L28 90 L46 104 Z" fill="none" stroke="#69b4ff" stroke-width="5.5" stroke-linejoin="round"/>
-    <!-- next (filled) -->
-    <path d="M55 73 L79 90 L55 107 Z" fill="#69b4ff"/>
+  <!-- manim-slides speech-bubble mark, centered in the tab -->
+  <g stroke="#e6edf3" stroke-width="6" fill="none" stroke-linejoin="round">
+    <!-- bubble with tail -->
+    <path d="M36 52
+             h56
+             a8 8 0 0 1 8 8
+             v24
+             a8 8 0 0 1 -8 8
+             H72
+             l-12 11
+             v-11
+             H36
+             a8 8 0 0 1 -8 -8
+             V60
+             a8 8 0 0 1 8 -8
+             Z"/>
+  </g>
+  <!-- skip-prev |◀ and skip-next ▶| inside the bubble -->
+  <g fill="#e6edf3">
+    <rect x="40" y="61" width="5" height="22" rx="1.5"/>
+    <path d="M62 61 L47 72 L62 83 Z"/>
+    <path d="M66 61 L81 72 L66 83 Z"/>
+    <rect x="83" y="61" width="5" height="22" rx="1.5"/>
   </g>
 </svg>
