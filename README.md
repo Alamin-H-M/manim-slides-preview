@@ -16,8 +16,8 @@ A **lightweight, zero-dependency, fully offline** VS Code extension that gives
 
 Unlike a plain video preview, this preview is the real **interactive HTML presentation**
 (Reveal.js): it pauses at every `self.next_slide()` and you advance with
-**Space / Arrow keys**, exactly like your live sessions. Perfect for testing before
-sharing a browser tab on Google Meet / OBS.
+**Space / Arrow keys**, exactly like your audience will see it. What you test in the
+preview is exactly what you present.
 
 ---
 
@@ -73,12 +73,12 @@ Four layers make each Ctrl+S iteration as fast as possible:
 
 ## Installing the extension (offline, for all users)
 
-You get a single `manim-slides-preview-1.7.3.vsix` file. No marketplace, no internet needed.
+You get a single `manim-slides-preview-1.7.4.vsix` file. No marketplace, no internet needed.
 
 ### Option A — per user (simplest)
 1. Copy the `.vsix` to the machine.
 2. In VS Code: **Extensions panel → `···` menu → Install from VSIX…** → pick the file.
-   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.3.vsix`
+   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.4.vsix`
 
 ### Option B — every user on a shared machine (Windows)
 Run in an **admin** PowerShell — installs for each existing user profile:
@@ -86,16 +86,16 @@ Run in an **admin** PowerShell — installs for each existing user profile:
 ```powershell
 Get-ChildItem C:\Users -Directory | ForEach-Object {
   $code = "$($_.FullName)\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd"
-  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.3.vsix" }
+  if (Test-Path $code) { & $code --install-extension "C:\path\to\manim-slides-preview-1.7.4.vsix" }
 }
 ```
 
 If VS Code is installed system-wide (`C:\Program Files\Microsoft VS Code`), each user
-just runs once: `code --install-extension manim-slides-preview-1.7.3.vsix`.
+just runs once: `code --install-extension manim-slides-preview-1.7.4.vsix`.
 
 ### Option C — every user on Linux/macOS
 ```bash
-sudo -u <username> code --install-extension manim-slides-preview-1.7.3.vsix
+sudo -u <username> code --install-extension manim-slides-preview-1.7.4.vsix
 ```
 
 ---
@@ -130,11 +130,11 @@ sudo -u <username> code --install-extension manim-slides-preview-1.7.3.vsix
 5. Edit code → **`Ctrl+S`** → it re-renders, re-converts, and the preview
    **auto-refreshes**. That's the whole loop.
 
-### For Google Meet live sessions
+### Presenting from the browser tab
 - Status bar → click **“Preview ready :7801”** (or run *Manim Slides: Open Preview in Browser*).
 - A Chrome/Edge/Firefox tab opens at `http://127.0.0.1:7801/demo.html`.
-- Detach the tab into its own window → snap it with **Win + ← / →**.
-- In Meet: **Share → A Tab** (Meet optimizes tab sharing up to 60 fps).
+- Detach the tab into its own window → snap it with **Win + ← / →**, or press **F** for fullscreen.
+- Works with any screen-sharing or projector setup — what you share is the interactive presentation itself.
 - Every `Ctrl+S` in VS Code silently refreshes that browser tab too.
 
 ### For the native PySide6 window
@@ -149,7 +149,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 |---|---|
 | `Manim Slides: Render & Preview` | Full pipeline (▶ button / `Ctrl+Shift+B`) |
 | `Manim Slides: Select Scene(s)` | Re-pick which classes to render |
-| `Manim Slides: Open Preview in Browser` | Pop the interactive preview into an external browser (for Meet/OBS) |
+| `Manim Slides: Open Preview in Browser` | Pop the interactive preview into an external browser tab |
 | `Manim Slides: Present in Native Window (GUI)` | Launch the PySide6 presenter window |
 | `Manim Slides: Show Output Log` | Render/convert logs (errors show here) |
 | `Manim Slides: Stop Preview Server` | Free the port |
@@ -189,7 +189,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
   add it to `.gitignore`. Manim's own `media/` and `slides/` folders behave as usual.
 - Saves during a running render are **queued**, never lost — the latest save re-runs
   after the current pipeline finishes.
-- Keep `-ql` while coding; render final YouTube masters with `manim -pqh` as usual —
+- Keep `-ql` while coding; render final high-quality videos with `manim -pqh` as usual —
   this extension doesn't interfere with your standard Manim workflow.
 
 ## Building the VSIX yourself (optional)
@@ -197,7 +197,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 ```bash
 npm install -g @vscode/vsce
 cd manim-slides-preview
-vsce package        # → manim-slides-preview-1.7.3.vsix
+vsce package        # → manim-slides-preview-1.7.4.vsix
 ```
 
 MIT licensed. No telemetry, no network calls, no runtime dependencies.

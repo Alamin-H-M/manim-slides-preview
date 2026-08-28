@@ -2,7 +2,7 @@
   "name": "manim-slides-preview",
   "displayName": "Manim Slides Preview",
   "description": "Render manim-slides scenes, auto-convert them to interactive offline HTML, and live-preview them inside VS Code or any browser. Zero dependencies, fully offline.",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "publisher": "local-tools",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -226,7 +226,7 @@
             "none"
           ],
           "enumDescriptions": [
-            "Default external browser \u2014 snappable window, shareable as a tab in Google Meet, auto-refreshes on save",
+            "Default external browser \u2014 snappable window, shareable in any screen-sharing app, auto-refreshes on save",
             "Simple Browser tab inside VS Code, beside your code, auto-refreshes on save",
             "Native Python GUI window (PySide6, 'manim-slides present') \u2014 full presenter hotkeys, OS window snapping; relaunches with fresh slides on save",
             "Browser tab + VS Code tab",
