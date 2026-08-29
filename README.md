@@ -54,6 +54,22 @@ to your scene file. Draft quality (`-ql`) while you iterate; set
 `manimSlidesPreview.quality` to `-qh` (1080p60), render once, export again —
 that's your master file. No second tool, no re-render for a different format.
 
+## Plays nice with Manim Sideview 🔀
+
+The ▶ button auto-detects what kind of file you're in:
+
+- **manim-slides deck** (imports `manim_slides` or has a `Slide` class) → this
+  extension renders it: interactive preview, live reload, background .pptx.
+- **Plain manim file** (only `Scene` classes) → the run is handed to the
+  [Manim Sideview](https://marketplace.visualstudio.com/items?itemName=Rickaym.manim-sideview)
+  extension if you have it installed — its video panel is the better tool for
+  plain scenes. Ctrl+S keeps re-running Sideview for that file too.
+
+The routing is sticky and self-correcting: add `from manim_slides import Slide`
+to a plain file and the very next save brings it back to this extension.
+No Sideview installed? Plain files render here as ordinary scenes.
+Disable the whole behavior with `manimSlidesPreview.routePlainManim: false`.
+
 ## Speed architecture (v1.2)
 
 Four layers make each Ctrl+S iteration as fast as possible:
@@ -195,6 +211,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 | _(automatic)_ | — | **No-op saves are free:** if the scene file and settings are bit-identical to the last successful render, Ctrl+S skips manim entirely (matters on decks with updater/ValueTracker animations, which manim can never hash-cache) |
 | `manimSlidesPreview.ffmpegPath` | `""` | Full path to your installed `ffmpeg`. Its folder is prepended to PATH and exported as `FFMPEG_BINARY` for every render/convert/present the extension runs, so the whole toolchain resolves to **your** ffmpeg. Note: Manim CE ≥ 0.19 encodes video through its bundled `pyav` library and never shells out to an ffmpeg binary — this setting matters for older Manim versions, `manim-voiceover`, GIF/PPTX conversion, and plugins that do call `ffmpeg`. |
 | `manimSlidesPreview.quality` | `-ql` | 480p15 draft while coding; switch to `-qh` for final checks |
+| `manimSlidesPreview.routePlainManim` | `true` | Hand plain-manim files (no manim-slides) to the Manim Sideview extension when installed |
 | `manimSlidesPreview.renderOnSave` | `true` | The Ctrl+S magic |
 | `manimSlidesPreview.offline` | `true` | Bundles Reveal.js locally — works with zero internet |
 | `manimSlidesPreview.oneFile` | `false` | Single self-contained HTML (great for sharing, slower to build) |

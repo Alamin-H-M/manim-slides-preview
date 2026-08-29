@@ -341,6 +341,47 @@ function detectScenes(source) {
   return { slideClasses, sceneClasses };
 }
 
+// ---------------------------------------------------------------------------
+// Plain-manim routing: files that use manim WITHOUT manim-slides are handed
+// to the Manim Sideview extension (if installed) — it is the right tool for
+// plain Scene previews, while this extension owns everything Slide-based.
+// ---------------------------------------------------------------------------
+const SIDEVIEW_ID = "Rickaym.manim-sideview";
+const sideviewFiles = new Set(); // files whose ▶/Ctrl+S is delegated to Sideview
+
+/** 'slides' = uses manim-slides; 'manim' = plain manim only; 'none' = neither. */
+function detectFlavor(source) {
+  // cheap textual checks first — no AST needed
+  const usesSlides = /(^|\n)\s*(from\s+manim_slides|import\s+manim_slides)/.test(source) ||
+    /class\s+[A-Za-z_]\w*\s*\([^)]*Slide[^)]*\)/.test(source);
+  if (usesSlides) return "slides";
+  const usesManim = /(^|\n)\s*(from\s+manim\b|import\s+manim\b)/.test(source) ||
+    /class\s+[A-Za-z_]\w*\s*\([^)]*Scene[^)]*\)/.test(source);
+  return usesManim ? "manim" : "none";
+}
+
+function sideviewInstalled() {
+  try {
+    return !!(vscode.extensions && vscode.extensions.getExtension &&
+      vscode.extensions.getExtension(SIDEVIEW_ID));
+  } catch (_) { return false; }
+}
+
+/** Delegate a plain-manim file to Manim Sideview. Returns true if handed off. */
+async function delegateToSideview(uri, isRerun) {
+  if (!sideviewInstalled()) return false;
+  try {
+    log(`\n▶ ${path.basename(uri.fsPath)} — plain manim file (no manim-slides) → handing off to Manim Sideview${isRerun ? " (re-run)" : ""}`);
+    setStatus("Manim Sideview ▶", "Plain-manim file — rendered by Manim Sideview", false);
+    await vscode.commands.executeCommand("manim-sideview.run", uri);
+    sideviewFiles.add(uri.fsPath);
+    return true;
+  } catch (e) {
+    log(`[route] Sideview hand-off failed (${e.message}) — rendering here instead`);
+    return false;
+  }
+}
+
 /**
  * Build the environment for spawned render/convert processes.
  * If `ffmpegPath` is configured, its directory is put FIRST on PATH so that
@@ -1395,6 +1436,19 @@ function activate(context) {
       const doc = activePyFile();
       if (!doc) return;
       if (doc.isDirty) await doc.save();
+      // Auto-detect what this file is: manim-slides decks are OUR job; plain
+      // manim files are routed to Manim Sideview when it's installed.
+      if (cfg().get("routePlainManim") !== false) {
+        let flavor = "slides";
+        try { flavor = detectFlavor(fs.readFileSync(doc.uri.fsPath, "utf8")); } catch (_) {}
+        if (flavor === "manim") {
+          if (await delegateToSideview(doc.uri, false)) return;
+          if (!sideviewInstalled()) {
+            log("\n[route] plain manim file and Manim Sideview is not installed — rendering the Scene classes here (no slide pauses)");
+          }
+        }
+      }
+      sideviewFiles.delete(doc.uri.fsPath); // it's ours (again)
       return pipeline(doc.uri.fsPath);
     }),
 
@@ -1532,11 +1586,22 @@ function activate(context) {
       statusBar.command = "manimSlidesPreview.renderAndPreview";
     }),
 
-    // Ctrl+S -> full auto pipeline (only for files previewed at least once)
+    // Ctrl+S -> full auto pipeline (only for files previewed at least once).
+    // Files handed to Manim Sideview via ▶ stay with Sideview on save — unless
+    // the file has since gained manim-slides usage, in which case it comes home.
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!cfg().get("renderOnSave")) return;
       if (doc.languageId !== "python") return;
-      if (fileState.has(doc.uri.fsPath)) pipeline(doc.uri.fsPath, { fromSave: true });
+      const fp = doc.uri.fsPath;
+      if (sideviewFiles.has(fp)) {
+        let flavor = "manim";
+        try { flavor = detectFlavor(doc.getText ? doc.getText() : fs.readFileSync(fp, "utf8")); } catch (_) {}
+        if (flavor === "manim") { delegateToSideview(doc.uri, true); return; }
+        sideviewFiles.delete(fp); // converted to manim-slides -> ours now
+        pipeline(fp, { fromSave: true });
+        return;
+      }
+      if (fileState.has(fp)) pipeline(fp, { fromSave: true });
     })
   );
 }
