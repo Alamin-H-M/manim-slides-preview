@@ -101,7 +101,21 @@ try:
 except Exception:
     pass
 
+IDLE_EXIT_SECS = float(os.environ.get("MSP_DAEMON_IDLE_EXIT", "600"))
+
 print(json.dumps({"msp": "ready", "import_secs": round(time.time() - t0, 2)}), flush=True)
+
+# Idle watchdog: a warm daemon holds manim imported (~165 MB idle RSS). When
+# the user walks away we exit quietly; the extension restarts us on demand
+# (costing only the one-time import). Implemented via a reader thread +
+# main-thread queue so stdin EOF also shuts us down promptly.
+import threading, queue as _q
+_requests = _q.Queue()
+def _reader():
+    for line in sys.stdin:
+        _requests.put(line)
+    _requests.put(None)  # EOF
+threading.Thread(target=_reader, daemon=True).start()
 
 def run(args, in_process_render):
     try:
@@ -118,7 +132,15 @@ def run(args, in_process_render):
         sys.stderr.write(traceback.format_exc())
         return 1
 
-for line in sys.stdin:
+while True:
+    try:
+        line = _requests.get(timeout=IDLE_EXIT_SECS)
+    except _q.Empty:
+        # idle too long -> free the memory; extension will respawn us
+        print(json.dumps({"msp": "idle_exit"}), flush=True)
+        break
+    if line is None:
+        break  # stdin closed
     line = line.strip()
     if not line:
         continue
@@ -139,6 +161,17 @@ for line in sys.stdin:
         except Exception: pass
     print(json.dumps({"msp": "done", "id": req.get("id"), "rc": rc,
                       "secs": round(time.time() - t, 2)}), flush=True)
+    # Lightweight: return freed pages to the OS between requests. Renders
+    # allocate hundreds of MB of frame buffers; without malloc_trim glibc
+    # keeps them in the heap and the idle daemon squats on ~250 MB RSS.
+    try:
+        import gc
+        gc.collect()
+        if sys.platform.startswith("linux"):
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 `;
 
 // ---------------------------------------------------------------------------
@@ -167,8 +200,11 @@ function fileLog(text) {
 }
 
 function log(msg) {
-  // never glue a log line onto a live progress bar that is still growing
-  if (activeTracker && activeTracker.openLine) activeTracker.closeOpenLine();
+  // never glue a log line onto a live progress bar / 📼 line still growing
+  if (activeTracker) {
+    if (activeTracker.openLine) activeTracker.closeOpenLine();
+    if (activeTracker.postOpen) activeTracker.closePostLine();
+  }
   output.appendLine(msg);
   fileLog(`[${new Date().toISOString().slice(11, 19)}] ${msg}\n`);
 }
@@ -210,6 +246,51 @@ function convertCacheKey(fileDir, scenes, conf) {
     conf.get("extraConvertArgs") || [],
   ]));
   return h.digest("hex");
+}
+
+/** Fingerprint of everything that determines render output: the scene file,
+ *  every sibling .py it could import, and the render-relevant settings.
+ *  If this is unchanged since the last successful render, running manim again
+ *  is pure waste — worse than waste on decks with updater/ValueTracker
+ *  animations, which manim can NEVER cache (hashing is disabled for
+ *  time-dependent updaters), so they'd re-render + re-convert + reload the
+ *  browser on every single no-op save. */
+function sourceKey(filePath, scenes, conf) {
+  try {
+    const h = crypto.createHash("md5");
+    h.update(fs.readFileSync(filePath));
+    const dir = path.dirname(filePath);
+    for (const f of fs.readdirSync(dir).sort()) {
+      if (f.endsWith(".py") && f !== path.basename(filePath)) {
+        const p = path.join(dir, f);
+        try { const st = fs.statSync(p); h.update(f + ":" + st.size + ":" + st.mtimeMs); } catch (_) {}
+      }
+    }
+    h.update(JSON.stringify([
+      scenes, conf.get("quality"), !!conf.get("turboPreview"),
+      conf.get("x264Preset") || "", conf.get("extraRenderArgs") || [],
+    ]));
+    return h.digest("hex");
+  } catch (_) { return null; }
+}
+
+/** Delete files in <html>_assets that the freshly written HTML no longer
+ *  references. manim-slides names assets by content hash and never cleans up,
+ *  so heavy decks leak megabytes per edit session without this. */
+function pruneStaleAssets(htmlPath) {
+  try {
+    const assetsDir = htmlPath.replace(/\.html?$/i, "") + "_assets";
+    if (!fs.existsSync(assetsDir)) return;
+    const html = fs.readFileSync(htmlPath, "utf8");
+    let removed = 0, freed = 0;
+    for (const f of fs.readdirSync(assetsDir)) {
+      if (!html.includes(f)) {
+        const p = path.join(assetsDir, f);
+        try { freed += fs.statSync(p).size; fs.rmSync(p, { force: true }); removed++; } catch (_) {}
+      }
+    }
+    if (removed) log(`[convert] pruned ${removed} stale asset file${removed === 1 ? "" : "s"} (${(freed / 1048576).toFixed(1)} MB freed)`);
+  } catch (_) { /* best-effort housekeeping — never fail the pipeline */ }
 }
 
 /** Detect Slide subclasses in a python source (fast regex, no AST needed). */
@@ -278,7 +359,13 @@ class RenderTracker {
     this.lastPct = new Map();
     this.raw = ""; // full raw output, dumped if the render fails
     this.postLabel = null; // post-processing phase label (concat/reverse)
+    this.postOpen = false; // a 📼 line is currently unterminated
     this.postPct = 0;
+    // Multi-scene renders: manim restarts animation numbering at 0 for each
+    // scene. Offset raw indices so per-animation tracking never collides.
+    this.idxOffset = 0;
+    this.lastRawIdx = -1;
+    this.sceneBreak = false; // set when a scene finished; next anim 0 = new scene
     this.BAR_W = 24;      // width of each per-animation live bar
     this.openLine = null; // { idx, blocks } — a 🎬 bar currently growing in place
     // Perceived-performance tweening: tqdm reports arrive in jumps; a 100 ms
@@ -328,6 +415,13 @@ class RenderTracker {
     return txt;
   }
 
+  /** Terminate an unfinished 📼 post-processing line. */
+  closePostLine() {
+    if (!this.postOpen) return;
+    output.append(this.postPct >= 100 ? "done\n" : "\n");
+    this.postOpen = false;
+  }
+
   /** Finish the in-place growing bar of the currently rendering animation. */
   closeOpenLine() {
     if (!this.openLine) return;
@@ -342,10 +436,24 @@ class RenderTracker {
   /** Cache hit: print one full instant bar. */
   printCached(idx, name) {
     this.closeOpenLine();
+    this.closePostLine();
     const nm = (name || "").slice(0, 55);
     output.append(
       `  ⚡ anim ${String(idx).padStart(2)} [${"█".repeat(this.BAR_W)}] cached${nm ? "  " + nm : ""}\n`
     );
+  }
+
+  /** Map a per-scene animation index to a global one (scenes restart at 0). */
+  globalIdx(raw) {
+    // A new scene begins when the previous one logged "Rendered X" OR the raw
+    // index went backwards (defensive: works even if that log line changes).
+    if (this.sceneBreak || raw < this.lastRawIdx) {
+      this.idxOffset += this.lastRawIdx + 1;
+      this.sceneBreak = false;
+      this.lastRawIdx = -1;
+    }
+    if (raw > this.lastRawIdx) this.lastRawIdx = raw;
+    return this.idxOffset + raw;
   }
 
   feed(text) {
@@ -358,7 +466,7 @@ class RenderTracker {
       // cache hit: "Animation 3 : Using cached"
       let m = /Animation\s+(\d+)\s*:\s*Using cached/.exec(line);
       if (m) {
-        const idx = +m[1];
+        const idx = this.globalIdx(+m[1]);
         if (!this.anims.has(idx) || this.anims.get(idx).state !== "cached") {
           this.anims.set(idx, { state: "cached", name: (this.anims.get(idx) || {}).name || "" });
           this.printCached(idx, this.anims.get(idx).name);
@@ -369,7 +477,7 @@ class RenderTracker {
       // tqdm frame progress: "Animation 2: Transform(Circle):  45%|"
       m = /Animation\s+(\d+):\s*(.*?):\s+(\d+)%\|/.exec(line);
       if (m) {
-        const idx = +m[1], name = m[2].trim(), pct = +m[3];
+        const idx = this.globalIdx(+m[1]), name = m[2].trim(), pct = +m[3];
         const existing = this.anims.get(idx);
         // Manim emits a zero-work tqdm line even for cached animations — ignore it
         if (existing && existing.state === "cached") { existing.name = existing.name || name; continue; }
@@ -383,6 +491,7 @@ class RenderTracker {
         // start this animation's live bar (instant-start illusion: first block
         // appears immediately so the bar never looks stalled at zero)
         if (!this.openLine) {
+          this.closePostLine();
           output.append(`  🎬 anim ${String(idx).padStart(2)} [█`);
           this.openLine = { idx, blocks: 1 };
         }
@@ -392,8 +501,12 @@ class RenderTracker {
         setStatus(this.status(), "Rendering…", true);
         continue;
       }
-      // scene finished writing -> close out any in-flight bar
-      if (/(Combining to Movie file|File ready at|Rendered \w+)/.test(line)) this.closeOpenLine();
+      // scene finished writing -> close out any in-flight bar + mark the
+      // boundary so the next scene's Animation 0 gets a fresh index block
+      if (/(Combining to Movie file|File ready at|Rendered \w+)/.test(line)) {
+        this.closeOpenLine();
+        if (/Rendered \w+/.test(line)) { this.sceneBreak = true; this.closePostLine(); this.postLabel = null; }
+      }
       // post-render phase (manim-slides): concatenating + reversing videos.
       // Previously swallowed -> looked like a hang on big decks. One line per
       // scene + live percent now, in the output channel and the status bar.
@@ -403,10 +516,13 @@ class RenderTracker {
         const label = m[1].replace(/\s+/g, " ").trim();
         const pct = +m[2];
         if (this.postLabel !== label) {
+          this.closePostLine(); // previous scene's 📼 line: terminate before starting a new one
           this.postLabel = label;
+          this.postPct = 0;
           output.append(`  📼 ${label} … `);
+          this.postOpen = true;
         }
-        if (pct >= 100 && this.postPct < 100) output.append("done\n");
+        if (pct >= 100 && this.postOpen) { output.append("done\n"); this.postOpen = false; }
         this.postPct = pct;
         setStatus(`Post-processing ${pct}%`, label, true);
         continue;
@@ -421,6 +537,7 @@ class RenderTracker {
   finish() {
     clearInterval(this.tween);
     this.closeOpenLine();
+    this.closePostLine();
     const { cached, rendered, done } = this.counts();
     if (done > 0) {
       animTotals.set(this.fileKey, done);
@@ -469,6 +586,7 @@ function ensureDaemon(workDir) {
         try { msg = JSON.parse(line); } catch (_) { routeOutput(line + "\n"); continue; }
         if (!msg || !msg.msp) { routeOutput(line + "\n"); continue; }
         if (msg.msp === "ready") { log(`[daemon] ready (imports: ${msg.import_secs}s)`); settle(true); }
+        else if (msg.msp === "idle_exit") { log("[daemon] idle for a while — shut down to free memory (restarts on next render)"); d.dead = true; daemons.delete(workDir); }
         else if (msg.msp === "fatal") { log(`[daemon] failed to import manim-slides: ${msg.err}`); settle(false); }
         else if (msg.msp === "done") {
           const p = d.pending.get(msg.id);
@@ -909,7 +1027,11 @@ async function pickScenes(filePath, forcePick) {
 }
 
 async function pipeline(filePath, opts = {}) {
-  if (running) { queued = filePath; return; }
+  if (running) {
+    if (queued !== filePath) log("[queue] render already in progress — this save will run right after it");
+    queued = filePath;
+    return;
+  }
   running = true;
 
   try {
@@ -966,11 +1088,31 @@ async function pipeline(filePath, opts = {}) {
     // Turbo preview: lower res/fps + skip reversed-video generation.
     // Final quality is untouched — flip the setting (or use -qh) when needed.
     const turbo = conf.get("turboPreview") === true;
-    setStatus(`Rendering ${scenes.join(", ")}…`, filePath, true);
-    // Always show progress in the Output panel (not just the status bar):
-    // preserveFocus=true keeps the cursor in the editor.
-    output.show(true);
-    log(`\n▶ ${path.basename(filePath)} — scenes: ${scenes.join(", ")}`);
+    // Source-level skip: if the scene file (and its .py siblings) plus every
+    // render-relevant setting are bit-identical to the last SUCCESSFUL render,
+    // don't invoke manim at all. This is the only reliable no-op-save guard:
+    // manim cannot cache updater/ValueTracker animations (time-dependent
+    // hashing is disabled), so without this a no-op Ctrl+S on a heavy deck
+    // still re-renders those animations every time (measured: 34 s).
+    const prevSt = fileState.get(filePath) || {};
+    const srcKey = useCache ? sourceKey(filePath, scenes, conf) : null;
+    const slidesExist = () => scenes.every((sc) => fs.existsSync(path.join(fileDir, "slides", `${sc}.json`)));
+    const skipRender = !!(srcKey && prevSt.srcKey === srcKey && slidesExist());
+    if (!skipRender) {
+      setStatus(`Rendering ${scenes.join(", ")}…`, filePath, true);
+      // Always show progress in the Output panel (not just the status bar):
+      // preserveFocus=true keeps the cursor in the editor.
+      output.show(true);
+    }
+    log(`\n▶ ${path.basename(filePath)} — scenes: ${scenes.join(", ")}${skipRender ? " — no changes since last render (render skipped)" : ""}`);
+    let rc = 0, cacheStats;
+    if (skipRender) {
+      // Source-level skip: manim is not invoked at all. This is the only
+      // reliable no-op-save guard — manim cannot hash-cache updater/
+      // ValueTracker animations, so without this a no-op Ctrl+S on a heavy
+      // deck still re-renders them every time (measured: 34 s of pure waste).
+      setStatus("Up to date ✓", "Source unchanged since last render", false);
+    } else {
     const renderArgs = [
       "render", filePath, ...scenes,
       conf.get("quality") || "-ql",
@@ -992,7 +1134,6 @@ async function pipeline(filePath, opts = {}) {
       } catch (_) { return false; }
     });
 
-    let rc, cacheStats;
     try {
       rc = await exec(renderArgs, "render", {
         skip_reversing: turbo,
@@ -1019,6 +1160,7 @@ async function pipeline(filePath, opts = {}) {
         log("─────────────────────────────────────");
       }
     }
+    } // end if (!skipRender)
     if (rc !== 0) {
       setStatus("Render failed", "Click to open log");
       statusBar.command = "manimSlidesPreview.showOutput";
@@ -1059,6 +1201,7 @@ async function pipeline(filePath, opts = {}) {
       convertArgs.push(...(conf.get("extraConvertArgs") || []), ...scenes, htmlPath);
 
       const cc = await exec(convertArgs, "convert");
+      if (cc === 0) pruneStaleAssets(htmlPath);
       if (cc !== 0) {
         setStatus("Convert failed", "Click to open log");
         output.show(true);
@@ -1076,8 +1219,10 @@ async function pipeline(filePath, opts = {}) {
     st.previewDir = previewDir;
     st.htmlName = htmlName;
     st.fileDir = fileDir;
-    if (htmlWanted) st.convertKey = cacheKey || convertCacheKey(fileDir, scenes, conf);
-    st.guiKey = cacheKey || convertCacheKey(fileDir, scenes, conf);
+    st.srcKey = srcKey; // render stage succeeded for exactly this source state
+    const freshKey = cacheKey || convertCacheKey(fileDir, scenes, conf);
+    if (htmlWanted) st.convertKey = freshKey;
+    st.guiKey = freshKey;
     fileState.set(filePath, st);
 
     let url = null;
@@ -1239,7 +1384,7 @@ function activate(context) {
           catch (e) { log(`clearCache: could not remove ${t}: ${e.message}`); }
         }
       }
-      for (const st of fileState.values()) delete st.convertKey; // bust convert-skip cache
+      for (const st of fileState.values()) { delete st.convertKey; delete st.srcKey; } // bust all skip caches
       log(`clearCache: removed ${removed} cache director${removed === 1 ? "y" : "ies"}.`);
       vscode.window.showInformationMessage(
         `Manim Slides: cache cleared (${removed} folder${removed === 1 ? "" : "s"}). ` +
@@ -1258,7 +1403,7 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!cfg().get("renderOnSave")) return;
       if (doc.languageId !== "python") return;
-      if (fileState.has(doc.uri.fsPath)) pipeline(doc.uri.fsPath);
+      if (fileState.has(doc.uri.fsPath)) pipeline(doc.uri.fsPath, { fromSave: true });
     })
   );
 }
@@ -1272,3 +1417,6 @@ function deactivate() {
 }
 
 module.exports = { activate, deactivate };
+// test-harness hook (not part of the public API): lets the scripted VS Code
+// harness await pipeline completion instead of racing it.
+module.exports._busy = () => running || !!queued;
