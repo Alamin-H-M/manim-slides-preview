@@ -2,7 +2,7 @@
   "name": "manim-slides-preview",
   "displayName": "Manim Slides Preview",
   "description": "Render manim-slides scenes, auto-convert them to interactive offline HTML, and live-preview them inside VS Code or any browser. Zero dependencies, fully offline.",
-  "version": "1.7.5",
+  "version": "1.7.4",
   "publisher": "local-tools",
   "license": "MIT",
   "icon": "media/icon.png",
