@@ -9,7 +9,6 @@ const crypto = require("crypto");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 
 // ---------------------------------------------------------------------------
 // State
@@ -19,6 +18,7 @@ let statusBar;         // StatusBarItem
 let server = null;     // http.Server
 let serverPort = 0;
 let sseClients = new Set();
+let serverSockets = new Set(); // open sockets -> destroyable on stopServer
 let running = false;   // a pipeline is currently executing
 let queued = null;     // file path queued while running
 let currentChild = null;
@@ -267,7 +267,9 @@ function findFinalVideos(filePath, previewDir) {
       for (const f of fs.readdirSync(qd)) {
         if (f.endsWith(".mp4")) {
           const p = path.join(qd, f);
-          out.push({ path: p, quality: qual, mtime: fs.statSync(p).mtimeMs });
+          let fst;
+          try { fst = fs.statSync(p); } catch (_) { continue; }
+          out.push({ path: p, quality: qual, mtime: fst.mtimeMs, size: fst.size });
         }
       }
     }
@@ -330,7 +332,7 @@ function detectScenes(source) {
   while ((m = re.exec(source))) {
     const name = m[1];
     const bases = m[2];
-    if (/\bSlide\b|Slide\s*(,|$)/.test(bases) || /Slide/.test(bases)) {
+    if (/Slide/.test(bases)) {
       slideClasses.push(name);
     } else if (/Scene/.test(bases)) {
       sceneClasses.push(name);
@@ -710,7 +712,7 @@ function exportPptx(filePath, fileDir, scenes, conf, st, force) {
       if (conf.get("useDaemon") !== false) {
         rc = await daemonRun(fileDir, args, "pptx");
       }
-      if (rc == null || rc === undefined) {
+      if (rc == null) {
         rc = await run([...splitCmd(conf.get("command") || "manim-slides"), ...args], fileDir, "pptx");
       }
       if (rc === 0 && fs.existsSync(tmp)) {
@@ -857,6 +859,7 @@ function launchGui(filePath, fileDir, scenes, conf) {
   child.stderr.on("data", (d) => { errBuf += d.toString(); });
   child.on("error", (e) => log(`[gui] failed to start: ${e.message}`));
   child.on("close", (code) => {
+    if (guiProcs.get(filePath) === g) guiProcs.delete(filePath); // no zombie map entries
     if (g.killed) return; // we relaunched or shut down — expected
     if (code && Date.now() - started < 15000) {
       // Crashed right after launch — almost always a missing Qt binding.
@@ -912,9 +915,26 @@ function serveDirs() {
 
 function startServer(preferredPort) {
   return new Promise((resolve) => {
-    if (server) return resolve(serverPort);
+    if (server) { resolve(serverPort); return; }
     server = http.createServer((req, res) => {
-      const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
+      // The entire handler is exception-proof: a hostile/garbled request must
+      // never take down the extension host (fuzzing found decodeURIComponent
+      // throws on malformed %-escapes, and files can vanish between stat and
+      // stream — both crashed the old handler).
+      try { handleRequest(req, res); }
+      catch (_) { try { res.writeHead(500); res.end(); } catch (_e) {} }
+    });
+    // track open sockets so stopServer() can close INSTANTLY (server.close()
+    // alone waits for keep-alive connections -> restart drifted to port+1)
+    server.on("connection", (sock) => {
+      serverSockets.add(sock);
+      sock.on("close", () => serverSockets.delete(sock));
+    });
+
+    function handleRequest(req, res) {
+      let urlPath;
+      try { urlPath = decodeURIComponent((req.url || "/").split("?")[0]); }
+      catch (_) { res.writeHead(400); return res.end("Bad request"); }
 
       if (urlPath === "/__events") {
         res.writeHead(200, {
@@ -932,13 +952,13 @@ function startServer(preferredPort) {
       const rel = path.normalize(urlPath).replace(/^([/\\])+/, "");
       if (rel.includes("..")) { res.writeHead(403); return res.end(); }
 
-      let filePath = null;
+      let filePath = null, stat = null;
       for (const dir of serveDirs()) {
         const candidate = path.join(dir, rel);
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-          filePath = candidate;
-          break;
-        }
+        try {                                   // single stat: half the syscalls,
+          const st = fs.statSync(candidate);    // and no exists->stat TOCTOU gap
+          if (st.isFile()) { filePath = candidate; stat = st; break; }
+        } catch (_) {}
       }
       if (!filePath) { res.writeHead(404); return res.end("Not found"); }
 
@@ -956,20 +976,35 @@ function startServer(preferredPort) {
       }
 
       // Stream everything else, honoring Range for video scrubbing.
-      const stat = fs.statSync(filePath);
+      // A read-stream error (file pruned mid-transfer) must kill only this
+      // response, never the process.
+      const streamTo = (opts) => {
+        const rs = fs.createReadStream(filePath, opts);
+        rs.on("error", () => { try { res.destroy(); } catch (_) {} });
+        rs.pipe(res);
+      };
       const range = req.headers.range;
       if (range && ext === ".mp4") {
         const m = /bytes=(\d*)-(\d*)/.exec(range);
-        let start = m && m[1] ? parseInt(m[1], 10) : 0;
-        let end = m && m[2] ? parseInt(m[2], 10) : stat.size - 1;
-        if (start >= stat.size) { res.writeHead(416); return res.end(); }
+        let start, end;
+        if (m && !m[1] && m[2]) {              // suffix form: bytes=-N = LAST N bytes
+          const n = Math.min(parseInt(m[2], 10) || 0, stat.size);
+          start = stat.size - n; end = stat.size - 1;
+        } else {
+          start = m && m[1] ? parseInt(m[1], 10) : 0;
+          end = m && m[2] ? Math.min(parseInt(m[2], 10), stat.size - 1) : stat.size - 1;
+        }
+        if (start >= stat.size || start > end || start < 0) {
+          res.writeHead(416, { "Content-Range": `bytes */${stat.size}` });
+          return res.end();
+        }
         res.writeHead(206, {
           "Content-Type": mime,
           "Content-Range": `bytes ${start}-${end}/${stat.size}`,
           "Accept-Ranges": "bytes",
           "Content-Length": end - start + 1,
         });
-        fs.createReadStream(filePath, { start, end }).pipe(res);
+        streamTo({ start, end });
       } else {
         res.writeHead(200, {
           "Content-Type": mime,
@@ -977,9 +1012,9 @@ function startServer(preferredPort) {
           "Accept-Ranges": "bytes",
           "Cache-Control": "no-cache",
         });
-        fs.createReadStream(filePath).pipe(res);
+        streamTo(undefined);
       }
-    });
+    }
 
     const tryListen = (port, attempts) => {
       server.once("error", (err) => {
@@ -1006,6 +1041,8 @@ function stopServer() {
   if (server) {
     for (const c of sseClients) { try { c.end(); } catch (_) {} }
     sseClients.clear();
+    for (const sock of serverSockets) { try { sock.destroy(); } catch (_) {} }
+    serverSockets.clear();
     server.close();
     server = null;
     serverPort = 0;
@@ -1056,8 +1093,8 @@ async function pickScenes(filePath, forcePick) {
 
 async function pipeline(filePath, opts = {}) {
   if (running) {
-    if (queued !== filePath) log("[queue] render already in progress — this save will run right after it");
-    queued = filePath;
+    if (!queued || queued.filePath !== filePath) log("[queue] render already in progress — this save will run right after it");
+    queued = { filePath, opts }; // keep opts: a queued Select-Scene must still force the picker
     return;
   }
   running = true;
@@ -1133,7 +1170,7 @@ async function pipeline(filePath, opts = {}) {
       output.show(true);
     }
     log(`\n▶ ${path.basename(filePath)} — scenes: ${scenes.join(", ")}${skipRender ? " — no changes since last render (render skipped)" : ""}`);
-    let rc = 0, cacheStats;
+    let rc = 0;
     if (skipRender) {
       // Source-level skip: manim is not invoked at all. This is the only
       // reliable no-op-save guard — manim cannot hash-cache updater/
@@ -1179,7 +1216,7 @@ async function pipeline(filePath, opts = {}) {
       }
       if (rc !== 0 && useDaemon) killDaemon(fileDir); // never reuse a failed interpreter
     } finally {
-      cacheStats = activeTracker.finish();
+      activeTracker.finish();
       const failedRaw = activeTracker.raw;
       activeTracker = null;
       if (rc !== 0 && failedRaw) {
@@ -1316,8 +1353,7 @@ async function pipeline(filePath, opts = {}) {
     if (finals.length) {
       log("\n🎞 Complete video files (same render — use them for editing / YouTube / course videos):");
       for (const v of finals) {
-        const mb = (fs.statSync(v.path).size / 1048576).toFixed(1);
-        log(`   ${v.path}  (${v.quality}, ${mb} MB)`);
+        log(`   ${v.path}  (${v.quality}, ${(v.size / 1048576).toFixed(1)} MB)`);
       }
       if ((conf.get("quality") || "-ql") === "-ql" || turbo) {
         log("   tip: these are draft quality — run 'Manim Slides: Export Video (.mp4)' or set quality to -qh for masters");
@@ -1328,7 +1364,7 @@ async function pipeline(filePath, opts = {}) {
     if (queued) {
       const next = queued;
       queued = null;
-      pipeline(next);
+      pipeline(next.filePath, next.opts);
     }
   }
 }
@@ -1370,7 +1406,14 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand("manimSlidesPreview.openInBrowser", () => {
-      for (const [file, st] of fileState) {
+      // Prefer the file in the active editor; fall back to any tracked file.
+      const ed = vscode.window.activeTextEditor;
+      const activeFp = ed && ed.document && ed.document.languageId === "python" ? ed.document.uri.fsPath : null;
+      const entries = [...fileState.entries()];
+      if (activeFp && fileState.has(activeFp)) {
+        entries.sort(([a], [b]) => (a === activeFp ? -1 : b === activeFp ? 1 : 0));
+      }
+      for (const [file, st] of entries) {
         if (st.previewed && serverPort) {
           const url = `http://127.0.0.1:${serverPort}/${encodeURIComponent(st.htmlName)}`;
           vscode.env.openExternal(vscode.Uri.parse(url));
@@ -1411,7 +1454,19 @@ function activate(context) {
       }
       // newest quality dir wins; copy each scene's video next to the .py file
       const newestQual = finals[0].quality;
-      const picked = finals.filter((v) => v.quality === newestQual);
+      let picked = finals.filter((v) => v.quality === newestQual);
+      // drop videos of scenes no longer in the file (stale cache leftovers)
+      const st = fileState.get(filePath);
+      const current = (st && st.scenes) || (() => {
+        try {
+          const d = detectScenes(fs.readFileSync(filePath, "utf8"));
+          return d.slideClasses.length ? d.slideClasses : d.sceneClasses;
+        } catch (_) { return null; }
+      })();
+      if (current && current.length) {
+        const kept = picked.filter((v) => current.includes(path.basename(v.path, ".mp4")));
+        if (kept.length) picked = kept;
+      }
       const destDir = path.join(fileDir, "videos");
       fs.mkdirSync(destDir, { recursive: true });
       openLogStream(previewDir);
