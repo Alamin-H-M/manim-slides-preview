@@ -38,6 +38,22 @@ preview is exactly what you present.
 Everything runs **locally** — the generated HTML bundles Reveal.js
 (`--offline` flag), so presentations work with no internet at all.
 
+## One render, two products 🎞
+
+manim-slides is built **on top of a normal manim render** — so every time you
+press ▶, you get BOTH:
+
+1. **A live interactive presentation** (pauses at every `next_slide()`,
+   Space/arrow keys) — for teaching live, screen-sharing, or the projector.
+2. **A complete .mp4 video per scene** (all animations concatenated, no
+   pauses) — ready to edit and upload to YouTube or drop into a course.
+
+The video files are listed in the Output panel after every render, and
+`Manim Slides: Export Video (.mp4)` copies them into a `videos/` folder next
+to your scene file. Draft quality (`-ql`) while you iterate; set
+`manimSlidesPreview.quality` to `-qh` (1080p60), render once, export again —
+that's your master file. No second tool, no re-render for a different format.
+
 ## Speed architecture (v1.2)
 
 Four layers make each Ctrl+S iteration as fast as possible:
@@ -163,6 +179,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 | `Manim Slides: Select Scene(s)` | Re-pick which classes to render |
 | `Manim Slides: Open Preview in Browser` | Pop the interactive preview into an external browser tab |
 | `Manim Slides: Present in Native Window (GUI)` | Launch the PySide6 presenter window |
+| `Manim Slides: Export Video (.mp4)` | Copy the complete per-scene videos (same render!) into `videos/` next to your file — for editing / YouTube / course production |
 | `Manim Slides: Show Output Log` | Render/convert logs (errors show here) |
 | `Manim Slides: Stop Preview Server` | Free the port |
 

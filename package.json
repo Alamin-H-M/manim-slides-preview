@@ -68,6 +68,10 @@
       {
         "command": "manimSlidesPreview.exportPptx",
         "title": "Manim Slides: Export PowerPoint (.pptx) Now"
+      },
+      {
+        "command": "manimSlidesPreview.exportVideo",
+        "title": "Manim Slides: Export Video (.mp4)"
       }
     ],
     "menus": {

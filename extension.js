@@ -248,6 +248,34 @@ function convertCacheKey(fileDir, scenes, conf) {
   return h.digest("hex");
 }
 
+/** Locate the complete per-scene .mp4 files manim wrote during the slides
+ *  render. manim-slides is built ON TOP of a normal manim render, so every
+ *  render produces BOTH the interactive slide deck AND a finished video per
+ *  scene (concatenated, ready to edit/upload) — they just live inside the
+ *  hidden cache dir where nobody would look. Surfacing them makes the
+ *  extension a two-in-one tool: live presentation + video production. */
+function findFinalVideos(filePath, previewDir) {
+  const base = path.basename(filePath, ".py");
+  const vidsRoot = path.join(previewDir, CACHE_DIR_NAME, "media", "videos", base);
+  const out = [];
+  try {
+    for (const qual of fs.readdirSync(vidsRoot)) {
+      const qd = path.join(vidsRoot, qual);
+      let st;
+      try { st = fs.statSync(qd); } catch (_) { continue; }
+      if (!st.isDirectory()) continue;
+      for (const f of fs.readdirSync(qd)) {
+        if (f.endsWith(".mp4")) {
+          const p = path.join(qd, f);
+          out.push({ path: p, quality: qual, mtime: fs.statSync(p).mtimeMs });
+        }
+      }
+    }
+  } catch (_) {}
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out;
+}
+
 /** Fingerprint of everything that determines render output: the scene file,
  *  every sibling .py it could import, and the render-relevant settings.
  *  If this is unchanged since the last successful render, running manim again
@@ -1279,6 +1307,22 @@ async function pipeline(filePath, opts = {}) {
       statusBar.command = "manimSlidesPreview.openInBrowser";
       log("\nPresenting in native GUI window (manim-slides present)");
     }
+
+    // Two-in-one: the same render also produced a complete, concatenated
+    // .mp4 per scene (manim-slides sits on top of a normal manim render).
+    // Surface them so users know they get a live presentation AND a finished
+    // video for editing/YouTube from the same file, same click.
+    const finals = findFinalVideos(filePath, previewDir).filter((v) => scenes.includes(path.basename(v.path, ".mp4")));
+    if (finals.length) {
+      log("\n🎞 Complete video files (same render — use them for editing / YouTube / course videos):");
+      for (const v of finals) {
+        const mb = (fs.statSync(v.path).size / 1048576).toFixed(1);
+        log(`   ${v.path}  (${v.quality}, ${mb} MB)`);
+      }
+      if ((conf.get("quality") || "-ql") === "-ql" || turbo) {
+        log("   tip: these are draft quality — run 'Manim Slides: Export Video (.mp4)' or set quality to -qh for masters");
+      }
+    }
   } finally {
     running = false;
     if (queued) {
@@ -1349,6 +1393,40 @@ function activate(context) {
       launchGui(doc.uri.fsPath, path.dirname(doc.uri.fsPath), scenes, cfg());
       const st = fileState.get(doc.uri.fsPath);
       if (st) st.guiLaunched = true;
+    }),
+
+    vscode.commands.registerCommand("manimSlidesPreview.exportVideo", async () => {
+      const doc = activePyFile();
+      if (!doc) return;
+      const filePath = doc.uri.fsPath;
+      const fileDir = path.dirname(filePath);
+      const wsFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
+      const rootDir = wsFolder ? wsFolder.uri.fsPath : fileDir;
+      const previewDir = path.join(rootDir, OUT_DIR_NAME);
+      const finals = findFinalVideos(filePath, previewDir);
+      if (!finals.length) {
+        vscode.window.showWarningMessage(
+          "No rendered videos yet — run 'Manim Slides: Render & Preview' first.");
+        return;
+      }
+      // newest quality dir wins; copy each scene's video next to the .py file
+      const newestQual = finals[0].quality;
+      const picked = finals.filter((v) => v.quality === newestQual);
+      const destDir = path.join(fileDir, "videos");
+      fs.mkdirSync(destDir, { recursive: true });
+      openLogStream(previewDir);
+      const copied = [];
+      for (const v of picked) {
+        const dest = path.join(destDir, path.basename(v.path));
+        try { fs.copyFileSync(v.path, dest); copied.push(dest); } catch (e) { log(`[video] copy failed: ${e.message}`); }
+      }
+      output.show(true);
+      log(`\n🎞 Exported ${copied.length} complete video${copied.length === 1 ? "" : "s"} (${newestQual}) to ${destDir}:`);
+      for (const c of copied) log(`   ${c}`);
+      log("   These are the SAME renders behind your slides — ready to edit, upload to YouTube, or drop into a course.");
+      log("   For final masters, set manimSlidesPreview.quality to -qh (1080p60) and render once, then export again.");
+      vscode.window.showInformationMessage(
+        `Manim Slides: ${copied.length} video file${copied.length === 1 ? "" : "s"} exported to ${destDir}`);
     }),
 
     vscode.commands.registerCommand("manimSlidesPreview.exportPptx", async () => {
