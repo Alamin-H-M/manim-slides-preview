@@ -323,10 +323,16 @@ function pruneStaleAssets(htmlPath) {
   } catch (_) { /* best-effort housekeeping — never fail the pipeline */ }
 }
 
-/** Detect Slide subclasses in a python source (fast regex, no AST needed). */
+/** Detect Slide subclasses in a python source (fast regex, no AST needed).
+ *  Mixed bases like (Slide, MovingCameraScene) are valid and treated as
+ *  slides. The one FATAL order is a bare Scene listed BEFORE a Slide base —
+ *  Slide already inherits from Scene, so Python cannot build a consistent
+ *  MRO and the file crashes at import. That is caught here statically
+ *  (microseconds) so the doomed render is never started. */
 function detectScenes(source) {
   const slideClasses = [];
   const sceneClasses = [];
+  const mroConflicts = []; // class names that will TypeError at import
   const re = /^class\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*:/gm;
   let m;
   while ((m = re.exec(source))) {
@@ -334,11 +340,16 @@ function detectScenes(source) {
     const bases = m[2];
     if (/Slide/.test(bases)) {
       slideClasses.push(name);
+      // bases in declared order, module prefixes stripped (manim.Scene -> Scene)
+      const list = bases.split(",").map((b) => b.trim().split(".").pop());
+      const slideIdx = list.findIndex((b) => /Slide/.test(b));
+      const bareSceneIdx = list.findIndex((b) => b === "Scene");
+      if (bareSceneIdx !== -1 && bareSceneIdx < slideIdx) mroConflicts.push(name);
     } else if (/Scene/.test(bases)) {
       sceneClasses.push(name);
     }
   }
-  return { slideClasses, sceneClasses };
+  return { slideClasses, sceneClasses, mroConflicts };
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,7 +1107,19 @@ function stopServer() {
 // ---------------------------------------------------------------------------
 async function pickScenes(filePath, forcePick) {
   const source = fs.readFileSync(filePath, "utf8");
-  const { slideClasses, sceneClasses } = detectScenes(source);
+  const { slideClasses, sceneClasses, mroConflicts } = detectScenes(source);
+  if (mroConflicts && mroConflicts.length) {
+    // (Scene, Slide) can never import — tell the user the exact fix instead
+    // of letting manim spend seconds to die on a cryptic MRO TypeError.
+    const cls = mroConflicts[0];
+    vscode.window.showErrorMessage(
+      `Manim Slides Preview: class ${cls}(Scene, Slide) cannot work — Slide already ` +
+      `inherits from Scene, so Python rejects this base order (MRO error). ` +
+      `Fix: write class ${cls}(Slide): — or put Slide first for mixins, e.g. (Slide, MovingCameraScene).`
+    );
+    log(`✗ ${path.basename(filePath)} — class ${cls} lists Scene before Slide; render skipped (would crash at import). Fix: class ${cls}(Slide):`);
+    return null;
+  }
   const all = slideClasses.length ? slideClasses : sceneClasses;
 
   if (!all.length) {

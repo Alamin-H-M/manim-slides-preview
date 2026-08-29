@@ -70,6 +70,13 @@ to a plain file and the very next save brings it back to this extension.
 No Sideview installed? Plain files render here as ordinary scenes.
 Disable the whole behavior with `manimSlidesPreview.routePlainManim: false`.
 
+**Mixed base classes**: `class X(Slide, MovingCameraScene)` is valid and always
+treated as a slide deck (rendered here, never sent to Sideview). But
+`class X(Scene, Slide)` — bare `Scene` listed *before* `Slide` — is a Python
+MRO error: `Slide` already inherits from `Scene`, so the class can never be
+created. The extension detects this statically (costs ~1 ms, no render is
+wasted) and tells you the exact fix: `class X(Slide):`.
+
 ## Speed architecture (v1.2)
 
 Four layers make each Ctrl+S iteration as fast as possible:
