@@ -128,6 +128,12 @@ sudo -u <username> code --install-extension manim-slides-preview-1.7.4.vsix
            self.play(FadeOut(circle))
    ```
 
+   Or grab **`example/test_deck.py`** from this repo — a ~20-slide showcase
+   that runs every major Manim animation family (creation, transforms,
+   updaters, rate functions, graphs, LaTeX, a looping slide, even a bonus 3D
+   scene). It's the deck we stress-test the extension with; if it runs on
+   your machine, everything works.
+
 3. Click the **▶ play button** in the editor title bar
    (or `Ctrl+Shift+B`, or Command Palette → *Manim Slides: Render & Preview*).
    - First run: if the file has several `Slide` classes, you pick which one(s) — remembered afterwards.
