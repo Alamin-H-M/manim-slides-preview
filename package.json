@@ -263,6 +263,12 @@
           },
           "default": [],
           "description": "Extra arguments for 'manim-slides convert --to pptx', e.g. [\"-cwidth=1920\", \"-cheight=1080\"] or [\"-cauto_play_media=false\"]."
+        },
+        "manimSlidesPreview.stallTimeout": {
+          "type": "number",
+          "default": 300,
+          "minimum": 60,
+          "description": "Watchdog (seconds): if a render produces NO output for this long, the background render daemon is considered stuck — it is restarted and the render is retried as a plain subprocess automatically. Raise this if your scenes legitimately compute silently for many minutes."
         }
       }
     }

@@ -174,6 +174,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 | `manimSlidesPreview.useDaemon` | `true` | Persistent render daemon — skips Python startup/imports on every save |
 | `manimSlidesPreview.pythonCommand` | `""` | Interpreter for the daemon (`py`, a venv's `python.exe`, …). Empty = `python`/`python3`. Must have manim-slides installed |
 | `manimSlidesPreview.cache` | `true` | Partial-movie cache + convert-skip cache. `Manim Slides: Clear Cache` wipes it |
+| `manimSlidesPreview.stallTimeout` | `300` | Watchdog (seconds): a render that produces **no output** for this long is treated as stuck — the daemon is restarted and the render automatically retries as a plain subprocess. You never have to close VS Code to un-wedge a render |
 | `manimSlidesPreview.ffmpegPath` | `""` | Full path to your installed `ffmpeg`. Its folder is prepended to PATH and exported as `FFMPEG_BINARY` for every render/convert/present the extension runs, so the whole toolchain resolves to **your** ffmpeg. Note: Manim CE ≥ 0.19 encodes video through its bundled `pyav` library and never shells out to an ffmpeg binary — this setting matters for older Manim versions, `manim-voiceover`, GIF/PPTX conversion, and plugins that do call `ffmpeg`. |
 | `manimSlidesPreview.quality` | `-ql` | 480p15 draft while coding; switch to `-qh` for final checks |
 | `manimSlidesPreview.renderOnSave` | `true` | The Ctrl+S magic |
@@ -197,6 +198,14 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
   `<venv>/bin/manim-slides`.
 - **`--offline` not recognized** → `pip install -U manim-slides`, or set
   `manimSlidesPreview.offline` to `false` (then the HTML pulls Reveal.js from a CDN).
+- **Every run is recorded to a plain-text log**: `.manim-slides-preview/msp.log`
+  (timestamped, includes the full render/convert output). If you hit an unknown
+  error, open that file and search the error text online — or paste it into an
+  issue. The log rotates at 2 MB so it never grows unbounded.
+- **The Output panel opens automatically on every render** — cached animations
+  show as instant ⚡ bars, new ones as live 🎬 bars, and the post-render phase
+  (concatenating/reversing slide videos) has its own 📼 progress line, so long
+  decks never look frozen.
 - **Output artifacts** land in `.manim-slides-preview/` at your workspace root —
   add it to `.gitignore`. Manim's own `media/` and `slides/` folders behave as usual.
 - Saves during a running render are **queued**, never lost — the latest save re-runs

@@ -23,6 +23,8 @@ let running = false;   // a pipeline is currently executing
 let queued = null;     // file path queued while running
 let currentChild = null;
 let activeTracker = null;          // per-render progress tracker (render step only)
+let logStream = null;              // persistent plain-text log (msp.log)
+let logStreamPath = null;
 const animTotals = new Map();      // fileKey -> animation count from last render
 
 // Per-file memory: { scenes: [..], previewDir, htmlName, previewed: true }
@@ -32,6 +34,8 @@ const fileState = new Map();
 const daemons = new Map();
 
 const OUT_DIR_NAME = ".manim-slides-preview";
+let EXT_VERSION = "?";
+try { EXT_VERSION = require("./package.json").version; } catch (_) {}
 const CACHE_DIR_NAME = "cache"; // hidden pycache-style store inside OUT_DIR_NAME
 
 // Python daemon: imports manim/manim-slides ONCE, then executes render/convert
@@ -74,9 +78,19 @@ except Exception:
 
 try:
     from manim_slides.slide.base import BaseSlide
-    BaseSlide.num_processes = max(1, (os.cpu_count() or 2) - 1)
+    # Windows: multiprocessing uses spawn -> each pool worker re-imports its
+    # modules (seconds each) and can stall inside a piped daemon. One process
+    # is safer and, for preview-sized videos, just as fast.
+    BaseSlide.num_processes = 1 if os.name == "nt" else max(1, (os.cpu_count() or 2) - 1)
 except Exception:
     BaseSlide = None
+
+# Stall visibility: while a request runs, dump all thread stacks to stderr
+# every 5 minutes -> if anything ever wedges, the log shows exactly where.
+try:
+    import faulthandler
+except Exception:
+    faulthandler = None
 
 # Dedupe log lines: the 'manim-slides' logger has its own RichHandler AND
 # propagates to the root logger, which manim also equips with a RichHandler
@@ -116,7 +130,13 @@ for line in sys.stdin:
         BaseSlide.skip_reversing = bool(req.get("skip_reversing", False))
     _PRESET["value"] = req.get("x264_preset") or None
     t = time.time()
+    if faulthandler:
+        try: faulthandler.dump_traceback_later(300, repeat=True, exit=False)
+        except Exception: pass
     rc = run(req.get("args", []), bool(req.get("in_process", True)))
+    if faulthandler:
+        try: faulthandler.cancel_dump_traceback_later()
+        except Exception: pass
     print(json.dumps({"msp": "done", "id": req.get("id"), "rc": rc,
                       "secs": round(time.time() - t, 2)}), flush=True)
 `;
@@ -128,10 +148,29 @@ function cfg() {
   return vscode.workspace.getConfiguration("manimSlidesPreview");
 }
 
+function openLogStream(previewDir) {
+  const p = path.join(previewDir, "msp.log");
+  if (logStreamPath === p && logStream) return;
+  try { if (logStream) logStream.end(); } catch (_) {}
+  try {
+    // rotate at ~2 MB so the log never grows unbounded
+    try { if (fs.existsSync(p) && fs.statSync(p).size > 2 * 1024 * 1024) fs.renameSync(p, p + ".1"); } catch (_) {}
+    logStream = fs.createWriteStream(p, { flags: "a" });
+    logStreamPath = p;
+    logStream.write(`\n===== session ${new Date().toISOString()} · extension v${EXT_VERSION} · ${process.platform} =====\n`);
+  } catch (_) { logStream = null; logStreamPath = null; }
+}
+
+function fileLog(text) {
+  if (!logStream) return;
+  try { logStream.write(text); } catch (_) {}
+}
+
 function log(msg) {
   // never glue a log line onto a live progress bar that is still growing
   if (activeTracker && activeTracker.openLine) activeTracker.closeOpenLine();
   output.appendLine(msg);
+  fileLog(`[${new Date().toISOString().slice(11, 19)}] ${msg}\n`);
 }
 
 function setStatus(text, tooltip, spinning) {
@@ -221,7 +260,11 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
  * stream and prints clean per-animation lines; otherwise raw pass-through.
  * Manim's noisy tqdm carriage-return spam is filtered out in tracker mode.
  */
+let lastChildOutput = 0; // watchdog: last time any child produced output
+
 function routeOutput(text) {
+  lastChildOutput = Date.now();
+  fileLog(text.replace(ANSI_RE, "").replace(/\r(?!\n)/g, "\n"));
   if (activeTracker) activeTracker.feed(text);
   else output.append(text);
 }
@@ -234,6 +277,8 @@ class RenderTracker {
     this.carry = "";
     this.lastPct = new Map();
     this.raw = ""; // full raw output, dumped if the render fails
+    this.postLabel = null; // post-processing phase label (concat/reverse)
+    this.postPct = 0;
     this.BAR_W = 24;      // width of each per-animation live bar
     this.openLine = null; // { idx, blocks } — a 🎬 bar currently growing in place
     // Perceived-performance tweening: tqdm reports arrive in jumps; a 100 ms
@@ -349,6 +394,27 @@ class RenderTracker {
       }
       // scene finished writing -> close out any in-flight bar
       if (/(Combining to Movie file|File ready at|Rendered \w+)/.test(line)) this.closeOpenLine();
+      // post-render phase (manim-slides): concatenating + reversing videos.
+      // Previously swallowed -> looked like a hang on big decks. One line per
+      // scene + live percent now, in the output channel and the status bar.
+      m = /(Concatenating animations[^:]*|Reversing[^:]*):\s+(\d+)%\|/.exec(line);
+      if (m) {
+        this.closeOpenLine();
+        const label = m[1].replace(/\s+/g, " ").trim();
+        const pct = +m[2];
+        if (this.postLabel !== label) {
+          this.postLabel = label;
+          output.append(`  📼 ${label} … `);
+        }
+        if (pct >= 100 && this.postPct < 100) output.append("done\n");
+        this.postPct = pct;
+        setStatus(`Post-processing ${pct}%`, label, true);
+        continue;
+      }
+      // daemon stall dump (faulthandler) -> make it loud in the output log
+      if (/Timeout \(0:0?5:00\)/.test(line)) {
+        output.append("\n⚠ render appears stalled — thread stacks dumped to the log (msp.log)\n");
+      }
     }
   }
 
@@ -423,18 +489,38 @@ function ensureDaemon(workDir) {
   return d;
 }
 
-/** Run one CLI request through the daemon. Resolves exit code, or null if daemon unusable. */
+/** Run one CLI request through the daemon. Resolves exit code, or null if
+ *  the daemon is unusable OR the request stalled (watchdog) — null always
+ *  means "retry via subprocess", so a wedged daemon can never hang the UI. */
 async function daemonRun(workDir, args, label, extra) {
   const d = ensureDaemon(workDir);
   const ok = await d.readyPromise;
   if (!ok || d.dead) return null; // caller falls back to subprocess
   log(`\n[${label}] (daemon) manim-slides ${args.join(" ")}`);
   const id = d.nextId++;
+  const reqStart = Date.now();
+  lastChildOutput = reqStart;
+  // Silence watchdog: a real render always logs SOMETHING (tqdm, cache hits,
+  // encoder lines). If the daemon goes fully silent for stallSecs, it is
+  // wedged (e.g. a multiprocessing pool that never comes back on Windows):
+  // kill it -> the close handler resolves this request -> subprocess retry.
+  const stallSecs = Math.max(60, Number(cfg().get("stallTimeout")) || 300);
+  let watchdogFired = false;
+  const wd = setInterval(() => {
+    const silent = (Date.now() - lastChildOutput) / 1000;
+    if (silent >= stallSecs) {
+      watchdogFired = true;
+      log(`\n[${label}] ⚠ no output for ${Math.round(silent)}s — daemon looks stuck, restarting it and retrying without the daemon`);
+      killDaemon(workDir); // close handler resolves every pending request
+    }
+  }, 10000);
   const result = await new Promise((resolve) => {
     d.pending.set(id, { resolve });
     try { d.child.stdin.write(JSON.stringify({ id, args, ...(extra || {}) }) + "\n"); }
     catch (e) { d.pending.delete(id); resolve({ rc: -1 }); }
   });
+  clearInterval(wd);
+  if (watchdogFired || (result.rc === -1 && d.dead)) return null; // -> subprocess retry
   log(`[${label}] exited with code ${result.rc}${result.secs != null ? ` (${result.secs}s)` : ""}`);
   return result.rc;
 }
@@ -510,11 +596,23 @@ function exportPptx(filePath, fileDir, scenes, conf, st, force) {
 }
 
 /** Kill one workspace's daemon (used after a failed render: manim's CLI can
- *  leave polluted global state in-process, so we always restart clean). */
+ *  leave polluted global state in-process, so we always restart clean).
+ *  Pending requests are resolved IMMEDIATELY (rc:-1) — never wait for the
+ *  process to actually die: a truly wedged process can ignore SIGTERM, so we
+ *  escalate to SIGKILL after 2s in the background. */
 function killDaemon(workDir) {
   const d = daemons.get(workDir);
-  if (d && !d.dead && d.child) { try { d.child.stdin.end(); d.child.kill(); } catch (_) {} }
   daemons.delete(workDir);
+  if (!d) return;
+  d.dead = true;
+  for (const p of d.pending.values()) p.resolve({ rc: -1 });
+  d.pending.clear();
+  const child = d.child;
+  if (!child) return;
+  try { child.stdin.end(); } catch (_) {}
+  try { child.kill(); } catch (_) {}
+  const killer = setTimeout(() => { try { child.kill("SIGKILL"); } catch (_) {} }, 2000);
+  child.once("close", () => clearTimeout(killer));
 }
 
 function stopDaemons() {
@@ -835,6 +933,7 @@ async function pipeline(filePath, opts = {}) {
     const rootDir = wsFolder ? wsFolder.uri.fsPath : fileDir;
     const previewDir = path.join(rootDir, OUT_DIR_NAME);
     fs.mkdirSync(previewDir, { recursive: true });
+    openLogStream(previewDir); // everything below is also recorded in msp.log
 
     const base = path.basename(filePath, ".py");
     const htmlName = `${base}.html`;
@@ -868,6 +967,10 @@ async function pipeline(filePath, opts = {}) {
     // Final quality is untouched — flip the setting (or use -qh) when needed.
     const turbo = conf.get("turboPreview") === true;
     setStatus(`Rendering ${scenes.join(", ")}…`, filePath, true);
+    // Always show progress in the Output panel (not just the status bar):
+    // preserveFocus=true keeps the cursor in the editor.
+    output.show(true);
+    log(`\n▶ ${path.basename(filePath)} — scenes: ${scenes.join(", ")}`);
     const renderArgs = [
       "render", filePath, ...scenes,
       conf.get("quality") || "-ql",
@@ -920,8 +1023,9 @@ async function pipeline(filePath, opts = {}) {
       setStatus("Render failed", "Click to open log");
       statusBar.command = "manimSlidesPreview.showOutput";
       output.show(true);
+      const lp = logStreamPath ? ` Full log saved to ${logStreamPath}` : "";
       vscode.window.showErrorMessage(
-        "manim-slides render failed — see the 'Manim Slides Preview' output log."
+        "manim-slides render failed — see the 'Manim Slides Preview' output log." + lp
       );
       return;
     }
@@ -1160,6 +1264,7 @@ function activate(context) {
 }
 
 function deactivate() {
+  try { if (logStream) { logStream.end(); logStream = null; } } catch (_) {}
   stopServer();
   stopDaemons();
   stopAllGuis();
