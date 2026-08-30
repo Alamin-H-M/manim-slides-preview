@@ -278,6 +278,11 @@
           "type": "boolean",
           "default": true,
           "description": "Auto-detect plain manim files (no manim-slides import / Slide class) and hand them to the Manim Sideview extension when it is installed. manim-slides decks are always rendered by this extension."
+        },
+        "manimSlidesPreview.restartOnEdit": {
+          "type": "boolean",
+          "default": true,
+          "description": "If you save a REAL code change while a render is running, kill the now-obsolete render and immediately start rendering the new code. A no-op save (identical file) never interrupts a running render."
         }
       }
     }

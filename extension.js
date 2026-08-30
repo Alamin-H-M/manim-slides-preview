@@ -22,6 +22,8 @@ let serverSockets = new Set(); // open sockets -> destroyable on stopServer
 let running = false;   // a pipeline is currently executing
 let queued = null;     // file path queued while running
 let currentChild = null;
+let runningCtx = null;       // { filePath, fileDir, srcHash } of the in-flight render
+let cancelRequested = false; // a newer save has invalidated the in-flight render
 let activeTracker = null;          // per-render progress tracker (render step only)
 let logStream = null;              // persistent plain-text log (msp.log)
 let logStreamPath = null;
@@ -78,12 +80,36 @@ except Exception:
 
 try:
     from manim_slides.slide.base import BaseSlide
-    # Windows: multiprocessing uses spawn -> each pool worker re-imports its
-    # modules (seconds each) and can stall inside a piped daemon. One process
-    # is safer and, for preview-sized videos, just as fast.
-    BaseSlide.num_processes = 1 if os.name == "nt" else max(1, (os.cpu_count() or 2) - 1)
+    BaseSlide.num_processes = 1
 except Exception:
     BaseSlide = None
+
+# CRITICAL daemon-safety patch: for slides longer than 4 s, manim-slides
+# reverses videos through a multiprocessing.Pool. This daemon has a stdin
+# reader THREAD, and forking a pool from a threaded process can inherit a
+# held lock -> the worker deadlocks at 0% ("Reversing large file by cutting
+# it in segments" freezes forever) and survives as an orphan when the daemon
+# is killed. Windows spawn-based workers instead re-import manim (seconds
+# each) inside a piped process and can stall too. A sequential in-process
+# "pool" keeps manim-slides' segmentation (low memory) with none of that:
+# deterministic, kill-safe, and for preview-sized segments just as fast.
+try:
+    import manim_slides.utils as _msu
+    class _SeqPool:
+        def __init__(self, *a, **k):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def imap_unordered(self, fn, iterable):
+            for item in iterable:
+                yield fn(item)
+        def map(self, fn, iterable):
+            return [fn(item) for item in iterable]
+    _msu.Pool = _SeqPool
+except Exception:
+    pass
 
 # Stall visibility: while a request runs, dump all thread stacks to stderr
 # every 5 minutes -> if anything ever wedges, the log shows exactly where.
@@ -822,6 +848,50 @@ function stopDaemons() {
   daemons.clear();
 }
 
+/** md5 of a file's bytes — cheap identity check for restart-on-edit. */
+function contentHash(p) {
+  try { return crypto.createHash("md5").update(fs.readFileSync(p)).digest("hex"); }
+  catch (_) { return null; }
+}
+
+/** Kill a child AND its process tree (Windows shell:true wraps the real python
+ *  in cmd.exe — child.kill() alone would only kill the wrapper). */
+function killChildTree(child) {
+  try {
+    if (process.platform === "win32") {
+      cp.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { shell: false });
+    } else {
+      // negative pid = the whole process group (pool workers included)
+      try { process.kill(-child.pid, "SIGTERM"); } catch (_) { child.kill(); }
+      const pid = child.pid;
+      setTimeout(() => { try { process.kill(-pid, "SIGKILL"); } catch (_) {} }, 2000);
+    }
+  } catch (_) {}
+}
+
+/** After a mid-render kill, the animation being encoded is left as a
+ *  TRUNCATED partial .mp4 whose hash-name manim's cache would happily reuse,
+ *  corrupting the next render. Delete partials written in the final moments
+ *  before the kill; complete older partials stay cached. */
+function pruneTruncatedPartials(previewDir, base, cutoffMs) {
+  const root = path.join(previewDir, CACHE_DIR_NAME, "media", "videos", base);
+  let removed = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".mp4")) {
+        try { if (fs.statSync(p).mtimeMs >= cutoffMs) { fs.rmSync(p, { force: true }); removed++; } }
+        catch (_) {}
+      }
+    }
+  };
+  walk(root);
+  if (removed) log(`[restart] discarded ${removed} possibly-truncated partial file${removed === 1 ? "" : "s"} from the killed render`);
+}
+
 /** Quote an argument for the Windows shell (cmd.exe) so paths with spaces survive. */
 function winQuote(arg) {
   if (arg === "") return '""';
@@ -845,6 +915,7 @@ function run(argv, cwdDir, label) {
       : cp.spawn(argv[0], argv.slice(1), {
           cwd: cwdDir,
           env: buildEnv(),
+          detached: true, // own process group -> killChildTree can kill the whole tree
         });
     currentChild = child;
     child.stdout.on("data", (d) => routeOutput(d.toString()));
@@ -1157,11 +1228,29 @@ async function pickScenes(filePath, forcePick) {
 
 async function pipeline(filePath, opts = {}) {
   if (running) {
-    if (!queued || queued.filePath !== filePath) log("[queue] render already in progress — this save will run right after it");
+    const firstQueue = !queued || queued.filePath !== filePath;
     queued = { filePath, opts }; // keep opts: a queued Select-Scene must still force the picker
+    // Restart-on-edit: if the file REALLY changed since the in-flight render
+    // read it, that render is producing obsolete output — kill it now and the
+    // finally-block will start this newer save immediately. A no-op Ctrl+S
+    // (identical bytes) never cancels: the running render is still valid.
+    if (cfg().get("restartOnEdit") !== false && !cancelRequested &&
+        runningCtx && runningCtx.filePath === filePath) {
+      const h = contentHash(filePath);
+      if (h && runningCtx.srcHash && h !== runningCtx.srcHash) {
+        cancelRequested = true;
+        log("\n[restart] code changed mid-render — stopping the stale render, your new code renders next");
+        setStatus("Restarting render…", "A newer save superseded the running render", true);
+        if (currentChild) killChildTree(currentChild);
+        else killDaemon(runningCtx.fileDir); // in-process daemon render: only its process can be stopped
+        return;
+      }
+    }
+    if (firstQueue) log("[queue] render already in progress — this save will run right after it");
     return;
   }
   running = true;
+  cancelRequested = false;
 
   try {
     const conf = cfg();
@@ -1204,6 +1293,7 @@ async function pipeline(filePath, opts = {}) {
       if (useDaemon) {
         const rc = await daemonRun(fileDir, args, label, extra);
         if (rc !== null) return rc;
+        if (cancelRequested) return -2; // daemon was killed ON PURPOSE (restart-on-edit) — don't resurrect via subprocess
         log(`[${label}] daemon unavailable — falling back to subprocess`);
       }
       return run([...msCmd, ...args], fileDir, label);
@@ -1263,11 +1353,15 @@ async function pipeline(filePath, opts = {}) {
       } catch (_) { return false; }
     });
 
+    // Restart-on-edit bookkeeping: remember exactly which bytes this render
+    // is based on, so a mid-render save can tell "real edit" from no-op.
+    runningCtx = { filePath, fileDir, srcHash: contentHash(filePath) };
     try {
       rc = await exec(renderArgs, "render", {
         skip_reversing: turbo,
         x264_preset: turbo ? "ultrafast" : (conf.get("x264Preset") || null),
       });
+      if (cancelRequested) rc = -2; // killed on purpose — skip retries below
       if (rc === 0 && useDaemon && !slidesFresh()) {
         // False success from a polluted daemon: restart it and re-run clean.
         log("[render] output missing/stale despite rc=0 — restarting daemon and retrying");
@@ -1283,13 +1377,23 @@ async function pipeline(filePath, opts = {}) {
       activeTracker.finish();
       const failedRaw = activeTracker.raw;
       activeTracker = null;
-      if (rc !== 0 && failedRaw) {
+      if (rc !== 0 && failedRaw && !cancelRequested) {
         log("\n──── full render output (failed) ────");
         output.append(failedRaw.replace(ANSI_RE, ""));
         log("─────────────────────────────────────");
       }
     }
     } // end if (!skipRender)
+    runningCtx = null;
+    if (cancelRequested) {
+      // Deliberate kill: the encoder may have left a truncated partial .mp4
+      // that manim's cache would reuse — discard anything written in the
+      // last seconds of the doomed render, then let finally{} start the
+      // queued newer save immediately. No error popups: this is a feature.
+      pruneTruncatedPartials(previewDir, base, Date.now() - 15000);
+      log("[restart] stale render stopped — starting the new one now");
+      return;
+    }
     if (rc !== 0) {
       setStatus("Render failed", "Click to open log");
       statusBar.command = "manimSlidesPreview.showOutput";
@@ -1624,7 +1728,12 @@ function activate(context) {
         pipeline(fp, { fromSave: true });
         return;
       }
-      if (fileState.has(fp)) pipeline(fp, { fromSave: true });
+      // Tracked files re-render on save — and so does a file whose FIRST
+      // render is still in flight (fileState is only populated after a
+      // pipeline finishes, but restart-on-edit must work during render #1).
+      if (fileState.has(fp) || (running && runningCtx && runningCtx.filePath === fp)) {
+        pipeline(fp, { fromSave: true });
+      }
     })
   );
 }

@@ -54,6 +54,19 @@ to your scene file. Draft quality (`-ql`) while you iterate; set
 `manimSlidesPreview.quality` to `-qh` (1080p60), render once, export again —
 that's your master file. No second tool, no re-render for a different format.
 
+## Edit during a render? It restarts instantly 🔁
+
+Save a **real code change** while a render is still running and the extension
+kills the now-obsolete render and immediately starts rendering your new code —
+no waiting for output you already know is stale. Details that keep it safe:
+
+- A **no-op save** (identical file) never interrupts a running render.
+- Truncated partial videos from the killed render are discarded, so manim's
+  cache never reuses a corrupt file.
+- A cancelled render is not an error — no popups, just a log line.
+- Turn it off with `manimSlidesPreview.restartOnEdit: false` (then mid-render
+  saves queue and run afterwards, the old behavior).
+
 ## Plays nice with Manim Sideview 🔀
 
 The ▶ button auto-detects what kind of file you're in:
@@ -218,6 +231,7 @@ Run *Manim Slides: Present in Native Window (GUI)* — launches
 | _(automatic)_ | — | **No-op saves are free:** if the scene file and settings are bit-identical to the last successful render, Ctrl+S skips manim entirely (matters on decks with updater/ValueTracker animations, which manim can never hash-cache) |
 | `manimSlidesPreview.ffmpegPath` | `""` | Full path to your installed `ffmpeg`. Its folder is prepended to PATH and exported as `FFMPEG_BINARY` for every render/convert/present the extension runs, so the whole toolchain resolves to **your** ffmpeg. Note: Manim CE ≥ 0.19 encodes video through its bundled `pyav` library and never shells out to an ffmpeg binary — this setting matters for older Manim versions, `manim-voiceover`, GIF/PPTX conversion, and plugins that do call `ffmpeg`. |
 | `manimSlidesPreview.quality` | `-ql` | 480p15 draft while coding; switch to `-qh` for final checks |
+| `manimSlidesPreview.restartOnEdit` | `true` | Kill an in-flight render when a real code change is saved; render the new code immediately |
 | `manimSlidesPreview.routePlainManim` | `true` | Hand plain-manim files (no manim-slides) to the Manim Sideview extension when installed |
 | `manimSlidesPreview.renderOnSave` | `true` | The Ctrl+S magic |
 | `manimSlidesPreview.offline` | `true` | Bundles Reveal.js locally — works with zero internet |
