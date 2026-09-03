@@ -1,145 +1,72 @@
-# Manim Slides Preview
+<p align="center">
+  <img src="media/icon.png" width="110" alt="Manim Slides Preview logo">
+</p>
 
-**Live preview for manim-slides in VS Code** — auto render on save, hot-reload in the browser / VS Code tab / native GUI, and automatic PowerPoint (.pptx) export. Press ▶ once — after that every save updates your presentation.
+<h1 align="center">Manim Slides Preview</h1>
 
-> 🤖 **Open source, AI-generated.** This extension was built by an AI assistant at a user's
-> request and published for everyone. Found a bug? Open an issue or PR — contributions welcome.
->
-> 📚 **New to LaTeX / Manim / manim-slides?** Learn the whole stack with the free offline
-> course **[Manim Slides Academy](https://github.com/Alamin-H-M/manim-slides-academy)** — built around this extension's workflow.
+<p align="center">
+  Live preview for <a href="https://github.com/jeertmans/manim-slides">manim-slides</a> in VS Code.<br>
+  <a href="https://youtu.be/4JbEV3PX5xo"><b>50-second demo video</b></a>
+</p>
 
+Press the run button once. After that, every `Ctrl+S` re-renders your changes
+and refreshes the interactive presentation in a browser tab, a VS Code tab, or
+the native presenter window. A PowerPoint copy is kept up to date in the
+background. No terminal commands.
 
-A **lightweight, zero-dependency, fully offline** VS Code extension that gives
-`manim-slides` a true one-click workflow (if you know the Manim Sideview
-extension: this is that experience, but for interactive presentations):
+The extension is a single 28 KB file with zero runtime dependencies and zero
+telemetry. Everything runs locally: the generated presentation bundles
+Reveal.js, so it works without internet.
 
-> Open folder → create `.py` → click ▶ → **interactive** slide preview appears → `Ctrl+S` → preview auto-refreshes.
+New to LaTeX, Manim, or manim-slides? The free offline course
+[Manim Slides Academy](https://github.com/Alamin-H-M/manim-slides-academy)
+teaches the whole stack around this workflow.
 
-Unlike a plain video preview, this preview is the real **interactive HTML presentation**
-(Reveal.js): it pauses at every `self.next_slide()` and you advance with
-**Space / Arrow keys**, exactly like your audience will see it. What you test in the
-preview is exactly what you present.
+## Contents
 
----
+1. [Requirements](#1-requirements)
+2. [Install](#2-install)
+3. [First presentation](#3-first-presentation)
+4. [The workflow](#4-the-workflow)
+5. [Coming from plain Manim](#5-coming-from-plain-manim)
+6. [What the extension replaces](#6-what-the-extension-replaces)
+7. [Presenting](#7-presenting)
+8. [How it stays fast](#8-how-it-stays-fast)
+9. [Commands](#9-commands)
+10. [Settings](#10-settings)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Building from source](#12-building-from-source)
+13. [Credits](#13-credits)
 
-## What it does on every run
+## 1. Requirements
 
-```
-   Click ▶  (or Ctrl+S after the first run)
-      │
-      ├─ 1. manim-slides render file.py YourScene  (-ql by default)
-      ├─ 2. manim-slides convert --to html --offline  → .manim-slides-preview/file.html
-      └─ 3. Built-in live-reload server (127.0.0.1)
-               │
-               ├─ Opens interactive preview beside your code (Simple Browser)
-               └─ Any external browser tab auto-refreshes on every save
-```
+One-time setup per machine:
 
-Everything runs **locally** — the generated HTML bundles Reveal.js
-(`--offline` flag), so presentations work with no internet at all.
-
-## One render, two products 🎞
-
-manim-slides is built **on top of a normal manim render** — so every time you
-press ▶, you get BOTH:
-
-1. **A live interactive presentation** (pauses at every `next_slide()`,
-   Space/arrow keys) — for teaching live, screen-sharing, or the projector.
-2. **A complete .mp4 video per scene** (all animations concatenated, no
-   pauses) — ready to edit and upload to YouTube or drop into a course.
-
-The video files are listed in the Output panel after every render, and
-`Manim Slides: Export Video (.mp4)` copies them into a `videos/` folder next
-to your scene file. Draft quality (`-ql`) while you iterate; set
-`manimSlidesPreview.quality` to `-qh` (1080p60), render once, export again —
-that's your master file. No second tool, no re-render for a different format.
-
-## Edit during a render? It restarts instantly 🔁
-
-Save a **real code change** while a render is still running and the extension
-kills the now-obsolete render and immediately starts rendering your new code —
-no waiting for output you already know is stale. Details that keep it safe:
-
-- A **no-op save** (identical file) never interrupts a running render.
-- Truncated partial videos from the killed render are discarded, so manim's
-  cache never reuses a corrupt file.
-- A cancelled render is not an error — no popups, just a log line.
-- Turn it off with `manimSlidesPreview.restartOnEdit: false` (then mid-render
-  saves queue and run afterwards, the old behavior).
-
-## Plays nice with Manim Sideview 🔀
-
-The ▶ button auto-detects what kind of file you're in:
-
-- **manim-slides deck** (imports `manim_slides` or has a `Slide` class) → this
-  extension renders it: interactive preview, live reload, background .pptx.
-- **Plain manim file** (only `Scene` classes) → the run is handed to the
-  [Manim Sideview](https://marketplace.visualstudio.com/items?itemName=Rickaym.manim-sideview)
-  extension if you have it installed — its video panel is the better tool for
-  plain scenes. Ctrl+S keeps re-running Sideview for that file too.
-
-The routing is sticky and self-correcting: add `from manim_slides import Slide`
-to a plain file and the very next save brings it back to this extension.
-No Sideview installed? Plain files render here as ordinary scenes.
-Disable the whole behavior with `manimSlidesPreview.routePlainManim: false`.
-
-**Mixed base classes**: `class X(Slide, MovingCameraScene)` is valid and always
-treated as a slide deck (rendered here, never sent to Sideview). But
-`class X(Scene, Slide)` — bare `Scene` listed *before* `Slide` — is a Python
-MRO error: `Slide` already inherits from `Scene`, so the class can never be
-created. The extension detects this statically (costs ~1 ms, no render is
-wasted) and tells you the exact fix: `class X(Slide):`.
-
-## Speed architecture (v1.2)
-
-Four layers make each Ctrl+S iteration as fast as possible:
-
-1. **Partial-movie cache** — Manim hash-matches every animation; only the ones
-   you actually edited are re-rendered. All partials are stored in a hidden
-   pycache-style folder: `.manim-slides-preview/cache/media/` (your project
-   root stays clean — no stray `media/` folder).
-2. **Render daemon** — a persistent background Python process imports
-   manim/manim-slides **once** and renders every save in-process, eliminating
-   interpreter startup + import cost on every save (~1s on Linux, typically
-   2–4s on Windows). Auto-restarts if it dies; falls back to a normal
-   subprocess transparently.
-3. **Convert-skip cache** — if a render produced identical slides (all cache
-   hits), the HTML conversion and the browser reload are skipped entirely.
-4. **Slide-position restore** — when the browser does reload, you stay on the
-   slide you were viewing (Reveal.js state stashed in `sessionStorage`).
-
----
-
-## Requirements (one-time, per machine)
-
-| Tool | Check with | Install |
+| Tool | Verify with | Install |
 |---|---|---|
 | Python 3.9+ | `python --version` | python.org |
 | Manim CE ≥ 0.19 | `manim --version` | `pip install manim` |
-| manim-slides **≥ 5.1.10** | `manim-slides --version` | `pip install -U "manim-slides[pyside6]"` |
-| LaTeX (MiKTeX / TeX Live) | `latex --version` | **only if** your scenes use `MathTex` / `Tex` |
+| manim-slides ≥ 5.1.10 | `manim-slides --version` | `pip install -U "manim-slides[pyside6]"` |
+| LaTeX (MiKTeX or TeX Live) | `latex --version` | Only if your scenes use `MathTex` / `Tex` |
 
-> **No FFmpeg needed.** Manim CE ≥ 0.19 encodes video through its bundled PyAV
-> library — you do **not** have to install an ffmpeg binary for this extension
-> or for rendering. (The `ffmpegPath` setting exists purely for older Manim
-> versions and plugins that still call ffmpeg directly.)
+FFmpeg is **not** required. Manim CE ≥ 0.19 encodes video through its bundled
+PyAV library. The `ffmpegPath` setting exists only for older Manim versions and
+plugins that call an ffmpeg binary directly.
 
-> `--offline` HTML export needs manim-slides **5.1.10 or newer**. If you're on an
-> older version, either update or turn off `manimSlidesPreview.offline` in settings.
+## 2. Install
 
----
+You need one file: `manim-slides-preview-1.7.4.vsix`
+(from [Releases](https://github.com/Alamin-H-M/manim-slides-preview/releases)).
+No marketplace, no internet.
 
-## Installing the extension (offline, for all users)
+**Per user.** In VS Code: Extensions panel → `···` menu → *Install from
+VSIX…* → select the file. Or from a terminal:
 
-You get a single `manim-slides-preview-1.7.4.vsix` file. No marketplace, no internet needed.
+```
+code --install-extension manim-slides-preview-1.7.4.vsix
+```
 
-### Option A — per user (simplest)
-1. Copy the `.vsix` to the machine.
-2. In VS Code: **Extensions panel → `···` menu → Install from VSIX…** → pick the file.
-   - Or from a terminal: `code --install-extension manim-slides-preview-1.7.4.vsix`
-
-### Option B — every user on a shared machine (Windows)
-Run in an **admin** PowerShell — installs for each existing user profile:
+**All users on a shared Windows machine.** Run in an admin PowerShell:
 
 ```powershell
 Get-ChildItem C:\Users -Directory | ForEach-Object {
@@ -148,138 +75,234 @@ Get-ChildItem C:\Users -Directory | ForEach-Object {
 }
 ```
 
-If VS Code is installed system-wide (`C:\Program Files\Microsoft VS Code`), each user
-just runs once: `code --install-extension manim-slides-preview-1.7.4.vsix`.
+**All users on Linux/macOS:**
 
-### Option C — every user on Linux/macOS
 ```bash
 sudo -u <username> code --install-extension manim-slides-preview-1.7.4.vsix
 ```
 
----
+Success indicator: a **Manim Slides** item appears in the status bar whenever a
+Python file is open.
 
-## Your workflow (matches the PDF exactly)
+## 3. First presentation
 
-1. **Right-click folder → Open with Code.**
-2. Create `demo.py`:
+1. Open a folder in VS Code and create a `.py` file:
 
-   ```python
-   from manim import *
-   from manim_slides import Slide
+```python
+from manim import *
+from manim_slides import Slide
 
-   class Demo(Slide):
-       def construct(self):
-           circle = Circle(color=BLUE)
-           self.play(Create(circle))
-           self.next_slide()          # ← pause point
+class Demo(Slide):
+    def construct(self):
+        title = Text("Manim Slides Preview", font_size=48)
+        self.play(Write(title))
+        self.next_slide()          # presentation pauses here
 
-           square = Square(color=RED)
-           self.play(Transform(circle, square))
-           self.next_slide()
+        circle = Circle(color=BLUE, radius=1.5).shift(DOWN * 0.5)
+        self.play(title.animate.to_edge(UP), Create(circle))
+        self.next_slide()
 
-           self.play(FadeOut(circle))
-   ```
+        self.play(FadeOut(circle), Unwrite(title))
+```
 
-   Or grab **`example/test_deck.py`** from this repo — a ~20-slide showcase
-   that runs every major Manim animation family (creation, transforms,
-   updaters, rate functions, graphs, LaTeX, a looping slide, even a bonus 3D
-   scene). It's the deck we stress-test the extension with; if it runs on
-   your machine, everything works.
+2. Click the run button (▶) in the editor title bar, or press `Ctrl+Shift+B`.
+   If the file has several scenes, a picker appears once and the choice is
+   remembered. The Output panel shows every animation's progress live.
+3. A browser tab opens with the interactive presentation. Advance with
+   `Space` or `→`, go back with `←`, fullscreen with `F`. The pauses are your
+   `next_slide()` calls, exactly as your audience will see them.
+4. Edit the code and press `Ctrl+S`. Only the changed animations re-render,
+   then the tab refreshes itself.
 
-3. Click the **▶ play button** in the editor title bar
-   (or `Ctrl+Shift+B`, or Command Palette → *Manim Slides: Render & Preview*).
-   - First run: if the file has several `Slide` classes, you pick which one(s) — remembered afterwards.
-4. The **interactive preview opens beside your code**. Click inside it, press
-   **Space / →** to advance through your `next_slide()` stops, **F** for fullscreen.
-5. Edit code → **`Ctrl+S`** → it re-renders, re-converts, and the preview
-   **auto-refreshes**. That's the whole loop.
+A `Demo.pptx` also appears next to your file and is silently kept up to date
+on every save. A larger example ships with the repo: `example/test_deck.py`,
+a ~20-slide deck covering every major animation family plus a 3D scene.
 
-### Presenting from the browser tab
-- Status bar → click **“Preview ready :7801”** (or run *Manim Slides: Open Preview in Browser*).
-- A Chrome/Edge/Firefox tab opens at `http://127.0.0.1:7801/demo.html`.
-- Detach the tab into its own window → snap it with **Win + ← / →**, or press **F** for fullscreen.
-- Works with any screen-sharing or projector setup — what you share is the interactive presentation itself.
-- Every `Ctrl+S` in VS Code silently refreshes that browser tab too.
+## 4. The workflow
 
-### For the native PySide6 window
-Run *Manim Slides: Present in Native Window (GUI)* — launches
-`manim-slides present` in a resizable, OS-snappable window with full presenter hotkeys.
+1. Click the run button once.
+2. Wait for the render. The interactive preview opens.
+3. Edit your code, press `Ctrl+S`.
+4. Repeat.
 
----
+Saving while a render is still running is safe in both directions:
 
-## Commands
+- A real code change stops the now-obsolete render and starts the new code
+  immediately. Truncated partial files are discarded so the cache never reuses
+  a corrupt file. Disable with `restartOnEdit: false`.
+- A save with no actual change never interrupts anything. If the file and
+  settings are identical to the last successful render, Manim is not invoked
+  at all.
 
-| Command | What it does |
-|---|---|
-| `Manim Slides: Render & Preview` | Full pipeline (▶ button / `Ctrl+Shift+B`) |
-| `Manim Slides: Select Scene(s)` | Re-pick which classes to render |
-| `Manim Slides: Open Preview in Browser` | Pop the interactive preview into an external browser tab |
-| `Manim Slides: Present in Native Window (GUI)` | Launch the PySide6 presenter window |
-| `Manim Slides: Export Video (.mp4)` | Copy the complete per-scene videos (same render!) into `videos/` next to your file — for editing / YouTube / course production |
-| `Manim Slides: Show Output Log` | Render/convert logs (errors show here) |
-| `Manim Slides: Stop Preview Server` | Free the port |
+## 5. Coming from plain Manim
 
-## Settings
+A slide deck is your existing Manim code plus pauses. The migration is three
+edits:
 
-| Setting | Default | Notes |
+```python
+from manim import *
+from manim_slides import Slide          # 1. add this import
+
+class Demo(Slide):                      # 2. Scene -> Slide
+    def construct(self):
+        circle = Circle(color=BLUE)
+        self.play(Create(circle))
+        self.next_slide()               # 3. pause point for presenting
+
+        square = Square(color=RED)
+        self.play(Transform(circle, square))
+        self.next_slide()
+
+        self.play(FadeOut(circle))
+```
+
+`Slide` is a `Scene` subclass, so every animation, mobject, and helper you
+already use works unchanged. Two rules:
+
+- Combining with special scene types: `Slide` goes first —
+  `class X(Slide, MovingCameraScene)`. The reverse order with a bare `Scene`,
+  `class X(Scene, Slide)`, is a Python MRO error. The extension detects that
+  statically and reports the fix before wasting a render.
+- Everything between two `next_slide()` calls plays as one slide.
+
+Your plain-Manim files keep working: if the
+[Manim Sideview](https://marketplace.visualstudio.com/items?itemName=Rickaym.manim-sideview)
+extension is installed, the run button detects files with only `Scene` classes
+and hands them to Sideview, including on every `Ctrl+S`. The routing corrects
+itself: add a `Slide` import and the next save comes back to this extension.
+Disable with `routePlainManim: false`.
+
+## 6. What the extension replaces
+
+The terminal workflow, per edit, for each preview target:
+
+| You want | Terminal only | With this extension |
 |---|---|---|
-| `manimSlidesPreview.command` | `manim-slides` | Use `py -m manim_slides` or a full path if not on PATH / in a venv (used by the subprocess fallback + GUI present) |
-| `manimSlidesPreview.useDaemon` | `true` | Persistent render daemon — skips Python startup/imports on every save |
-| `manimSlidesPreview.pythonCommand` | `""` | Interpreter for the daemon (`py`, a venv's `python.exe`, …). Empty = `python`/`python3`. Must have manim-slides installed |
-| `manimSlidesPreview.cache` | `true` | Partial-movie cache + convert-skip cache. `Manim Slides: Clear Cache` wipes it |
-| `manimSlidesPreview.stallTimeout` | `300` | Watchdog (seconds): a render that produces **no output** for this long is treated as stuck — the daemon is restarted and the render automatically retries as a plain subprocess. You never have to close VS Code to un-wedge a render |
-| _(automatic)_ | — | **No-op saves are free:** if the scene file and settings are bit-identical to the last successful render, Ctrl+S skips manim entirely (matters on decks with updater/ValueTracker animations, which manim can never hash-cache) |
-| `manimSlidesPreview.ffmpegPath` | `""` | Full path to your installed `ffmpeg`. Its folder is prepended to PATH and exported as `FFMPEG_BINARY` for every render/convert/present the extension runs, so the whole toolchain resolves to **your** ffmpeg. Note: Manim CE ≥ 0.19 encodes video through its bundled `pyav` library and never shells out to an ffmpeg binary — this setting matters for older Manim versions, `manim-voiceover`, GIF/PPTX conversion, and plugins that do call `ffmpeg`. |
-| `manimSlidesPreview.quality` | `-ql` | 480p15 draft while coding; switch to `-qh` for final checks |
-| `manimSlidesPreview.restartOnEdit` | `true` | Kill an in-flight render when a real code change is saved; render the new code immediately |
-| `manimSlidesPreview.routePlainManim` | `true` | Hand plain-manim files (no manim-slides) to the Manim Sideview extension when installed |
-| `manimSlidesPreview.renderOnSave` | `true` | The Ctrl+S magic |
-| `manimSlidesPreview.offline` | `true` | Bundles Reveal.js locally — works with zero internet |
-| `manimSlidesPreview.oneFile` | `false` | Single self-contained HTML (great for sharing, slower to build) |
-| `manimSlidesPreview.openIn` | `browser` | Any combination of the three preview targets: `browser` \| `vscode` \| `gui` (native PySide6 window) \| `browser+vscode` \| `browser+gui` \| `vscode+gui` \| `all` \| `none` |
-| `manimSlidesPreview.guiArgs` | `[]` | Extra flags for the native GUI presenter (`manim-slides present`), e.g. `["--fullscreen"]`, `["--hide-mouse"]`, `["-S","2"]` for a second monitor |
-| `manimSlidesPreview.pptxExport` | `true` | **On by default:** the first ▶ render creates a `.pptx` next to your scene file, and every changed Ctrl+S silently keeps it up to date — background export through the warm daemon, never delays the preview, skipped when slides are unchanged |
-| `manimSlidesPreview.pptxPath` | `""` | Output location: empty = next to the scene file; a folder puts `<file>.pptx` inside it; a `.pptx` path is used as-is (relative paths resolve against the scene file's folder) |
-| `manimSlidesPreview.pptxArgs` | `[]` | Extra flags for `manim-slides convert --to pptx`, e.g. `["-cwidth=1920","-cheight=1080"]` |
-| `manimSlidesPreview.port` | `7801` | Auto-increments if busy |
-| `manimSlidesPreview.extraRenderArgs` / `extraConvertArgs` | `[]` | Power-user pass-through |
+| Browser preview | `manim-slides render deck.py MyScene`, then `manim-slides convert MyScene slides.html --open`, then find and refresh the tab | `Ctrl+S`; the tab refreshes itself |
+| Native presenter window | render, then `manim-slides present MyScene`; the window closes on every edit | `Ctrl+S`; the window relaunches with fresh slides |
+| Preview inside VS Code | not possible without extra tooling | set `openIn: "vscode"` |
+| PowerPoint file | `manim-slides convert --to pptx MyScene deck.pptx`, redone after each change | updated automatically on every save |
+| Multiple scenes | retype the scene names in order, every time | picked once, remembered |
+| Re-render only changes | remember the right flags | automatic; cache hits are marked in the log |
 
-## Tips & troubleshooting
+## 7. Presenting
 
-- **Nothing renders / "failed to start"** → `manim-slides` isn't on VS Code's PATH.
-  Set `manimSlidesPreview.command` to the full path
-  (e.g. `C:\Python313\Scripts\manim-slides.exe`) or `py -m manim_slides`.
-- **Using a venv?** Select its interpreter with the Python extension, then set
-  `manimSlidesPreview.command` to `<venv>/Scripts/manim-slides` (Windows) or
-  `<venv>/bin/manim-slides`.
-- **`--offline` not recognized** → `pip install -U manim-slides`, or set
-  `manimSlidesPreview.offline` to `false` (then the HTML pulls Reveal.js from a CDN).
-- **Every run is recorded to a plain-text log**: `.manim-slides-preview/msp.log`
-  (timestamped, includes the full render/convert output). If you hit an unknown
-  error, open that file and search the error text online — or paste it into an
-  issue. The log rotates at 2 MB so it never grows unbounded.
-- **The Output panel opens automatically on every render** — cached animations
-  show as instant ⚡ bars, new ones as live 🎬 bars (numbered continuously across
-  scenes in multi-scene renders), and each scene's post-render phase
-  (concatenating/reversing slide videos) has its own 📼 progress line, so long
-  decks never look frozen.
-- **Housekeeping is automatic**: stale preview assets are pruned after every
-  convert (heavy decks used to leak megabytes per edit session), and the render
-  daemon frees its memory after each request and shuts itself down after 10
-  minutes idle (it restarts instantly on the next render).
-- **Output artifacts** land in `.manim-slides-preview/` at your workspace root —
-  add it to `.gitignore`. Manim's own `media/` and `slides/` folders behave as usual.
-- Saves during a running render are **queued**, never lost — the latest save re-runs
-  after the current pipeline finishes.
-- Keep `-ql` while coding; render final high-quality videos with `manim -pqh` as usual —
-  this extension doesn't interfere with your standard Manim workflow.
+**Browser tab (default).** Detach the preview tab into its own window, snap it
+with `Win+←/→`, or press `F` for fullscreen. Share the tab in any video-call
+tool or drag it to the projector. Every `Ctrl+S` refreshes it silently, and
+you stay on the slide you were viewing.
 
-## Building the VSIX yourself (optional)
+**VS Code tab.** Set `openIn` to `vscode` for a preview beside your code.
+
+**Native window.** Run *Manim Slides: Present in Native Window (GUI)*, or set
+`openIn` to `gui` to make the window part of the save loop. This is
+`manim-slides present`: a resizable, OS-snappable PySide6 window with full
+presenter hotkeys. Pass flags with `guiArgs`, for example `["--fullscreen"]`
+or `["-S","2"]` for a second monitor.
+
+Any combination works: `browser+gui`, `all`, `none`, and so on.
+
+## 8. How it stays fast
+
+Four layers, all automatic:
+
+1. **Partial-movie cache.** Manim hash-matches every animation; only edited
+   ones re-render. Cache files live in `.manim-slides-preview/cache/`, not in
+   your project root.
+2. **Render daemon.** A persistent background Python process imports Manim
+   once and renders every save in-process, removing interpreter startup and
+   import cost per save. It frees memory after each request, exits after 10
+   idle minutes, restarts on demand, and falls back to a plain subprocess if
+   anything goes wrong. A watchdog restarts it if a render produces no output
+   for `stallTimeout` seconds, so a stuck render never requires closing
+   VS Code.
+3. **Convert-skip cache.** If a render produced identical slides, the HTML
+   conversion and browser reload are skipped.
+4. **Source fingerprint.** A byte-identical save skips Manim entirely. This is
+   the only guard that works for updater/ValueTracker animations, which Manim
+   cannot hash-cache.
+
+## 9. Commands
+
+Open the palette with `Ctrl+Shift+P`:
+
+| Command | Effect |
+|---|---|
+| Manim Slides: Render & Preview | Full pipeline; same as the run button / `Ctrl+Shift+B` |
+| Manim Slides: Select Scene(s) | Re-pick which classes to render |
+| Manim Slides: Open Preview in Browser | Open the presentation in an external tab |
+| Manim Slides: Present in Native Window (GUI) | Launch the PySide6 presenter |
+| Manim Slides: Export PowerPoint (.pptx) Now | One-off export, even if unchanged |
+| Manim Slides: Export Video (.mp4) | Copy the rendered per-scene `.mp4` files into `videos/` next to your file |
+| Manim Slides: Show Output Log | Full render/convert logs; first stop for any error |
+| Manim Slides: Clear Cache | Wipe all caches for a clean rebuild |
+| Manim Slides: Stop Preview Server | Free the port |
+
+## 10. Settings
+
+All keys are prefixed `manimSlidesPreview.`:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `command` | `manim-slides` | Executable. Use a full path or `py -m manim_slides` for venvs and PATH issues |
+| `quality` | `-ql` | Render quality: `-ql` 480p15, `-qm` 720p30, `-qh` 1080p60, `-qp` 1440p60, `-qk` 4K |
+| `renderOnSave` | `true` | Re-render on `Ctrl+S` for files previewed at least once |
+| `restartOnEdit` | `true` | A changed save stops an in-flight render and starts the new code |
+| `openIn` | `browser` | Preview target: `browser`, `vscode`, `gui`, any `+` combination, `all`, `none` |
+| `guiArgs` | `[]` | Extra flags for the native presenter, e.g. `["--fullscreen"]` |
+| `pptxExport` | `true` | Keep a `.pptx` next to the scene file, updated in the background |
+| `pptxPath` | `""` | Empty = next to the scene file; a folder or full `.pptx` path also works |
+| `pptxArgs` | `[]` | Extra flags for `convert --to pptx` |
+| `offline` | `true` | Bundle Reveal.js locally; presentations need no internet (requires manim-slides ≥ 5.1.10) |
+| `oneFile` | `false` | Single self-contained HTML, for sharing one file |
+| `htmlControls` | `true` | On-screen navigation arrows in the HTML |
+| `useDaemon` | `true` | Warm render daemon |
+| `pythonCommand` | `""` | Interpreter for the daemon; point it at your venv's Python |
+| `cache` | `true` | All caching layers; *Clear Cache* wipes them |
+| `stallTimeout` | `300` | Seconds of complete silence before a render is treated as stuck |
+| `routePlainManim` | `true` | Hand plain-Manim files to Manim Sideview when installed |
+| `turboPreview` | `false` | 640×360@15fps drafts, skips reversed videos; preview only |
+| `x264Preset` | `veryfast` | Encoder speed preset; quality is CRF-controlled and unchanged |
+| `port` | `7801` | Preview server port; auto-increments if busy |
+| `ffmpegPath` | `""` | Path to an ffmpeg binary, for older Manim versions and ffmpeg-dependent plugins only |
+| `extraRenderArgs`, `extraConvertArgs` | `[]` | Pass-through flags |
+
+## 11. Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Nothing happens, or "failed to start" | `manim-slides` is not on VS Code's PATH. Set `command` to the full path (e.g. `C:\Python313\Scripts\manim-slides.exe`) or `py -m manim_slides` |
+| Renders work in a terminal but not here | Virtualenv mismatch. Point `command` at `<venv>/Scripts/manim-slides` (Windows) or `<venv>/bin/manim-slides` |
+| `--offline` not recognized | `pip install -U manim-slides` (needs ≥ 5.1.10), or set `offline: false` |
+| No Slide classes found | The class must inherit from `manim_slides.Slide` |
+| Render looks frozen | Watch the Output panel; the post-render phase shows its own progress line. After `stallTimeout` seconds of true silence the extension restarts the daemon and retries automatically |
+| Preview tab closed | Click the status-bar item, or run *Manim Slides: Open Preview in Browser* |
+| Port conflict | The server auto-increments from `port`, 20 attempts |
+| Anything else | Open `.manim-slides-preview/msp.log`. Every command, its full output, and all errors are recorded there with timestamps. Search the error text verbatim or attach the file to an issue |
+
+Generated files land in `.manim-slides-preview/` at the workspace root; add it
+to `.gitignore`. Manim's own `media/` and `slides/` folders behave exactly as
+with terminal use. The extension writes no registry entries and makes no
+network calls.
+
+## 12. Building from source
 
 ```bash
 npm install -g @vscode/vsce
 cd manim-slides-preview
-vsce package        # → manim-slides-preview-1.7.4.vsix
+vsce package        # -> manim-slides-preview-1.7.4.vsix
 ```
 
-MIT licensed. No telemetry, no network calls, no runtime dependencies.
+MIT licensed.
+
+## 13. Credits
+
+**Concept, design & testing — [Alamin Maruf](https://github.com/Alamin-H-M).**
+He spotted the gap this extension fills, specified every feature, made every
+product decision, and battle-tested each build on a real Windows + Manim CE
+setup. Nothing shipped without being run against a live manim-slides project
+first.
+
+**Code — AI-generated.** The implementation was written by an AI assistant
+working under Alamin's direction, iterating on his bug reports and feature
+specs. Found a bug? Open an issue — a human reads them.
